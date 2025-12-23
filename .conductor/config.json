@@ -1,0 +1,102 @@
+{
+  "name": "yokohama",
+  "description": "Agentic Visual Regression Test Harness for SvelteKit",
+  "version": "1.0.0",
+  "setup": {
+    "command": "./scripts/setup.sh",
+    "description": "Install dependencies, build, and configure environment"
+  },
+  "commands": {
+    "analyze": {
+      "command": "npm run analyze",
+      "description": "Analyze a GitHub PR and generate visual regression tests",
+      "usage": "npm run analyze <github-pr-url>",
+      "example": "npm run analyze https://github.com/owner/repo/pull/123"
+    },
+    "vrt": {
+      "command": "npm run vrt",
+      "description": "Run visual regression tests",
+      "usage": "npm run vrt [pr-number]",
+      "example": "npm run vrt generated/pr-123.spec.ts"
+    },
+    "vrt:update": {
+      "command": "npm run vrt:update",
+      "description": "Update baseline screenshots",
+      "usage": "npm run vrt:update [pr-number]"
+    },
+    "list": {
+      "command": "npm run list",
+      "description": "List all generated tests and baselines"
+    },
+    "dev": {
+      "command": "npm run dev",
+      "description": "Start TypeScript watch mode for development"
+    },
+    "test": {
+      "command": "npm test",
+      "description": "Run unit tests"
+    }
+  },
+  "environment": {
+    "required": [
+      {
+        "name": "OPENAI_API_KEY",
+        "description": "OpenAI API key for GPT-4 analysis"
+      },
+      {
+        "name": "TEST_URL",
+        "description": "URL of the test environment"
+      }
+    ],
+    "optional": [
+      {
+        "name": "GITHUB_TOKEN",
+        "description": "GitHub token for private repos"
+      },
+      {
+        "name": "TEST_USER",
+        "description": "Test user for authenticated routes"
+      },
+      {
+        "name": "TEST_PASSWORD",
+        "description": "Test password for authenticated routes"
+      }
+    ]
+  },
+  "workflow": {
+    "steps": [
+      {
+        "step": 1,
+        "action": "Create a new feature on your SvelteKit application",
+        "description": "Make changes to your application codebase"
+      },
+      {
+        "step": 2,
+        "action": "Open a PR on GitHub",
+        "description": "Push your changes and create a pull request"
+      },
+      {
+        "step": 3,
+        "action": "Spin up your test environment",
+        "description": "Deploy your branch to a staging URL"
+      },
+      {
+        "step": 4,
+        "action": "Run Yokohama analysis",
+        "command": "npm run analyze <pr-url> --project /path/to/your/sveltekit/app",
+        "description": "Analyze the PR and generate visual regression tests"
+      },
+      {
+        "step": 5,
+        "action": "Run the generated tests",
+        "command": "npm run vrt",
+        "description": "Execute Playwright tests against your staging environment"
+      },
+      {
+        "step": 6,
+        "action": "Review results",
+        "description": "Check the HTML report in output/pr-{number}/report.html"
+      }
+    ]
+  }
+}
