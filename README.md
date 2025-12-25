@@ -33,12 +33,7 @@ AutoE2E bridges the gap between code changes and visual testing by intelligently
    cd AutoE2E
    ```
 
-2. Run the setup script:
-   ```bash
-   ./scripts/setup.sh
-   ```
-
-   Or manually:
+2. Install dependencies and build:
    ```bash
    npm install
    npm run build
@@ -111,8 +106,6 @@ npm run list
 │   ├── cli.ts             # CLI commands
 │   └── index.ts           # Main Yokohama class
 ├── tests/                 # Unit tests
-├── scripts/
-│   └── setup.sh           # Setup script
 ├── generated/             # Generated test files
 ├── baselines/             # Screenshot baselines
 └── output/                # Reports and results

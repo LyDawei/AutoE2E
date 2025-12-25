@@ -9,7 +9,6 @@
     "yokohama": "dist/cli.js"
   },
   "scripts": {
-    "setup": "./scripts/setup.sh",
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest",
