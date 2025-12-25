@@ -53,7 +53,7 @@ export class GitHubClient {
     };
 
     if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+      headers['Authorization'] = `token ${this.token}`;
     }
 
     return headers;

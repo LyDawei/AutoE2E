@@ -1,4 +1,48 @@
 import { defineConfig, devices } from '@playwright/test';
+import { readFileSync, existsSync } from 'fs';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+// Load .env file manually (Node 18+ compatible, no dotenv dependency)
+function loadEnvFile(filePath: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (!existsSync(filePath)) {
+    return env;
+  }
+  try {
+    const content = readFileSync(filePath, 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      // Skip empty lines and comments
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIndex = trimmed.indexOf('=');
+      if (eqIndex === -1) continue;
+
+      let key = trimmed.slice(0, eqIndex).trim();
+      let value = trimmed.slice(eqIndex + 1).trim();
+
+      // Handle 'export ' prefix
+      if (key.startsWith('export ')) {
+        key = key.slice(7).trim();
+      }
+
+      // Strip surrounding quotes (single or double)
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+
+      env[key] = value;
+    }
+  } catch {
+    // Silently fail if .env cannot be read
+  }
+  return env;
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath = resolve(__dirname, '.env');
+const env = loadEnvFile(envPath);
 
 export default defineConfig({
   testDir: './generated',
@@ -12,7 +56,7 @@ export default defineConfig({
   ],
 
   use: {
-    baseURL: process.env.TEST_URL || 'http://localhost:3000',
+    baseURL: env.TEST_URL || process.env.TEST_URL || 'http://localhost:3000',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },

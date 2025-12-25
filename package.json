@@ -18,12 +18,12 @@
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "prepublishOnly": "npm run build",
-    "analyze": "node dist/cli.js analyze",
+    "analyze": "node --env-file=.env dist/cli.js analyze",
     "vrt": "npx playwright test",
     "vrt:update": "npx playwright test --update-snapshots",
-    "list": "node dist/cli.js list",
-    "baselines": "node dist/cli.js baselines",
-    "baselines:clean": "node dist/cli.js baselines --clean"
+    "list": "node --env-file=.env dist/cli.js list",
+    "baselines": "node --env-file=.env dist/cli.js baselines",
+    "baselines:clean": "node --env-file=.env dist/cli.js baselines --clean"
   },
   "keywords": [
     "playwright",
