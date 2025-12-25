@@ -1,10 +1,10 @@
-# Yokohama
+# AutoE2E
 
 An agentic visual regression test harness for SvelteKit that automatically analyzes GitHub pull requests and generates visual regression tests using AI.
 
 ## Overview
 
-Yokohama bridges the gap between code changes and visual testing by intelligently analyzing pull requests and automatically generating Playwright tests for affected routes. It uses OpenAI GPT-4 Turbo to understand code changes and determine which pages need visual regression testing.
+AutoE2E bridges the gap between code changes and visual testing by intelligently analyzing pull requests and automatically generating Playwright tests for affected routes. It uses OpenAI GPT-4 Turbo to understand code changes and determine which pages need visual regression testing.
 
 ## Features
 
