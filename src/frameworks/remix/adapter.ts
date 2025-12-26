@@ -225,9 +225,26 @@ export class RemixAdapter extends BaseAdapter {
   }
 
   private isLayoutOnlyFile(fileName: string): boolean {
-    // Files starting with _ that aren't _index are layout-only
+    // Files that are ONLY a pathless segment (like _auth.tsx) are layout-only
+    // Files like _auth.login.tsx are actual routes (renders /login under _auth layout)
     const baseName = fileName.replace(/\.(tsx?|jsx?)$/, '');
-    return baseName.startsWith('_') && baseName !== '_index';
+
+    // If it's _index, it's a route (not layout-only)
+    if (baseName === '_index') {
+      return false;
+    }
+
+    // Parse the file name to see if it has multiple segments
+    const parts = this.parseRemixFileName(baseName);
+
+    // Layout-only if there's only one segment and it starts with _
+    // e.g., _auth.tsx -> parts = ['_auth'] -> layout-only
+    // e.g., _auth.login.tsx -> parts = ['_auth', 'login'] -> route (not layout-only)
+    if (parts.length === 1 && parts[0].startsWith('_')) {
+      return true;
+    }
+
+    return false;
   }
 
   /**

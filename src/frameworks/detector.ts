@@ -32,6 +32,7 @@ export async function detectFramework(
   ctx: AdapterContext
 ): Promise<FrameworkDetectionResult> {
   const results: Array<{ adapter: FrameworkAdapter; result: FrameworkDetectionResult }> = [];
+  const errors: Array<{ framework: string; error: Error }> = [];
 
   logger.debug('Starting framework detection...');
 
@@ -57,7 +58,21 @@ export async function detectFramework(
         }
       }
     } catch (error) {
-      logger.debug(`Error detecting ${adapter.displayName}: ${error}`);
+      // Track errors for better diagnostics - don't silently swallow
+      const err = error instanceof Error ? error : new Error(String(error));
+      errors.push({ framework: adapter.displayName, error: err });
+
+      // Log at warn level for network/IO errors, debug for others
+      const isNetworkError = err.message.includes('fetch') ||
+        err.message.includes('network') ||
+        err.message.includes('ENOTFOUND') ||
+        err.message.includes('timeout');
+
+      if (isNetworkError) {
+        logger.warn(`Network error detecting ${adapter.displayName}: ${err.message}`);
+      } else {
+        logger.debug(`Error detecting ${adapter.displayName}: ${err.message}`);
+      }
     }
   }
 
@@ -70,6 +85,17 @@ export async function detectFramework(
     const best = results[0];
     logger.debug(`Best match: ${best.adapter.displayName} (${best.result.confidence})`);
     return best.result;
+  }
+
+  // If all detections failed with errors, report that
+  if (errors.length > 0 && results.length === 0) {
+    const errorSummary = errors.map((e) => `${e.framework}: ${e.error.message}`).join('; ');
+    logger.warn(`Framework detection encountered errors: ${errorSummary}`);
+    return {
+      framework: null,
+      confidence: 'none',
+      reason: `Detection failed with errors: ${errorSummary}`,
+    };
   }
 
   return {

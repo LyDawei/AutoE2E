@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Yokohama, getSupportedFrameworks, isFrameworkSupported } from './index.js';
+import { AutoE2E, getSupportedFrameworks, isFrameworkSupported } from './index.js';
 import type { FrameworkType } from './frameworks/types.js';
 import { setLogLevel } from './utils/logger.js';
 import { loadEnvConfig } from './config/env.js';
@@ -14,7 +14,7 @@ const program = new Command();
 const supportedFrameworks = getSupportedFrameworks();
 
 program
-  .name('yokohama')
+  .name('autoe2e')
   .description('Agentic visual regression and logic test harness for modern frontend frameworks')
   .version('1.0.0');
 

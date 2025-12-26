@@ -34,7 +34,7 @@ import type { FrameworkType, FrameworkAdapter, AdapterContext, FileSource } from
 import { detectMonorepo, findWorkspace } from './monorepo/index.js';
 import type { MonorepoConfig, WorkspaceInfo } from './monorepo/types.js';
 
-export interface YokohamaConfig {
+export interface AutoE2EConfig {
   /** OpenAI API key */
   openaiApiKey: string;
   /** Test environment URL */
@@ -207,7 +207,20 @@ export class AutoE2E {
         }
       }
     } catch (error) {
-      logger.debug(`Monorepo detection error: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isNetworkError = errorMessage.includes('fetch') ||
+        errorMessage.includes('network') ||
+        errorMessage.includes('ENOTFOUND') ||
+        errorMessage.includes('timeout');
+
+      if (isNetworkError) {
+        // Network errors might indicate larger problems
+        logger.warn(`Monorepo detection failed due to network issue: ${errorMessage}`);
+      } else {
+        // Other errors are less critical - monorepo detection is optional
+        logger.debug(`Monorepo detection skipped: ${errorMessage}`);
+      }
+      // Continue without monorepo detection - it's optional functionality
     }
 
     // Detect or use specified framework
@@ -231,9 +244,12 @@ export class AutoE2E {
       const detection = await detectFramework(ctx);
       if (!detection.framework) {
         // Fall back to legacy SvelteKit behavior for backwards compatibility
+        const supportedFrameworks = getSupportedFrameworks().join(', ');
         logger.warn(
-          'Could not auto-detect framework. Falling back to SvelteKit. ' +
-          'Use --framework to specify explicitly.'
+          `Could not auto-detect framework from repository structure.\n` +
+          `Falling back to SvelteKit for backwards compatibility.\n` +
+          `If this is incorrect, specify the framework explicitly with --framework <type>\n` +
+          `Supported frameworks: ${supportedFrameworks}`
         );
         adapter = getAdapter('sveltekit');
         detectedFramework = 'sveltekit';
@@ -255,7 +271,7 @@ export class AutoE2E {
 
     try {
       routes = await adapter.discoverRoutes(ctx);
-      logger.info(`Discovered ${routes.length} routes`);
+      logger.info(`Discovered ${routes.length} routes using ${adapter.displayName} adapter`);
 
       // Build import graph (still uses local-only implementation for now)
       if (this.config.projectPath && fs.existsSync(this.config.projectPath)) {
@@ -267,12 +283,33 @@ export class AutoE2E {
         }
       }
     } catch (error) {
-      logger.warn(`Route discovery failed: ${error instanceof Error ? error.message : error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isNetworkError = errorMessage.includes('fetch') ||
+        errorMessage.includes('network') ||
+        errorMessage.includes('ENOTFOUND') ||
+        errorMessage.includes('timeout') ||
+        errorMessage.includes('rate limit');
+
+      if (isNetworkError) {
+        // Network errors are more serious - log as error
+        logger.error(`Route discovery failed due to network issue: ${errorMessage}`);
+      } else {
+        logger.warn(`Route discovery failed: ${errorMessage}`);
+      }
+
       // Fall back to legacy discovery if local path available
       if (this.config.projectPath && fs.existsSync(this.config.projectPath)) {
-        logger.info('Falling back to legacy route discovery');
-        routes = discoverRoutes(this.config.projectPath);
-        importGraph = buildImportGraph(this.config.projectPath);
+        logger.info('Falling back to legacy SvelteKit route discovery (local path available)');
+        try {
+          routes = discoverRoutes(this.config.projectPath);
+          importGraph = buildImportGraph(this.config.projectPath);
+          logger.info(`Legacy discovery found ${routes.length} routes`);
+        } catch (legacyError) {
+          logger.error(`Legacy route discovery also failed: ${legacyError instanceof Error ? legacyError.message : legacyError}`);
+          // Continue with empty routes - better than crashing
+        }
+      } else {
+        logger.warn('No local path available for fallback route discovery. Continuing with limited analysis.');
       }
     }
 

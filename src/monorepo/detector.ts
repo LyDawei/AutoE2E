@@ -178,31 +178,53 @@ async function detectNx(
     const workspaces: WorkspaceInfo[] = [];
 
     // Check apps/ directory
-    if (await fileSource.isDirectory(rootPath ? `${rootPath}/apps` : 'apps')) {
-      const apps = await fileSource.readdir(rootPath ? `${rootPath}/apps` : 'apps');
-      for (const app of apps) {
-        const appPath = rootPath ? `${rootPath}/apps/${app}` : `apps/${app}`;
-        if (await fileSource.isDirectory(appPath)) {
-          workspaces.push({
-            name: app,
-            path: `apps/${app}`,
-          });
+    const appsDir = rootPath ? `${rootPath}/apps` : 'apps';
+    try {
+      if (await fileSource.isDirectory(appsDir)) {
+        const apps = await fileSource.readdir(appsDir);
+        for (const app of apps) {
+          const appPath = rootPath ? `${rootPath}/apps/${app}` : `apps/${app}`;
+          try {
+            if (await fileSource.isDirectory(appPath)) {
+              workspaces.push({
+                name: app,
+                path: `apps/${app}`,
+              });
+            }
+          } catch {
+            // Skip individual app on error
+            logger.debug(`Failed to check app directory: ${appPath}`);
+          }
         }
       }
+    } catch {
+      // apps/ directory not accessible
+      logger.debug(`Could not access apps directory: ${appsDir}`);
     }
 
     // Check packages/ directory
-    if (await fileSource.isDirectory(rootPath ? `${rootPath}/packages` : 'packages')) {
-      const packages = await fileSource.readdir(rootPath ? `${rootPath}/packages` : 'packages');
-      for (const pkg of packages) {
-        const pkgPath = rootPath ? `${rootPath}/packages/${pkg}` : `packages/${pkg}`;
-        if (await fileSource.isDirectory(pkgPath)) {
-          workspaces.push({
-            name: pkg,
-            path: `packages/${pkg}`,
-          });
+    const packagesDir = rootPath ? `${rootPath}/packages` : 'packages';
+    try {
+      if (await fileSource.isDirectory(packagesDir)) {
+        const packages = await fileSource.readdir(packagesDir);
+        for (const pkg of packages) {
+          const pkgPath = rootPath ? `${rootPath}/packages/${pkg}` : `packages/${pkg}`;
+          try {
+            if (await fileSource.isDirectory(pkgPath)) {
+              workspaces.push({
+                name: pkg,
+                path: `packages/${pkg}`,
+              });
+            }
+          } catch {
+            // Skip individual package on error
+            logger.debug(`Failed to check package directory: ${pkgPath}`);
+          }
         }
       }
+    } catch {
+      // packages/ directory not accessible
+      logger.debug(`Could not access packages directory: ${packagesDir}`);
     }
 
     if (workspaces.length === 0) {

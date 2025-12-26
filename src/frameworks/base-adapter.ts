@@ -193,16 +193,59 @@ export abstract class BaseAdapter implements FrameworkAdapter {
 
   /**
    * Join path segments, normalizing slashes and preventing path traversal
+   *
+   * Security: Validates each segment BEFORE joining to prevent path traversal attacks.
+   * Allows framework routing patterns like [...slug] and [[...slug]] which contain '..'
+   * but rejects actual path traversal attempts like '../' or '..\'.
    */
   protected joinPaths(...paths: string[]): string {
-    return paths
-      .filter(Boolean)
+    const filtered = paths.filter(Boolean);
+    if (filtered.length === 0) return '';
+
+    // Validate each segment for path traversal attempts
+    for (let i = 0; i < filtered.length; i++) {
+      const segment = filtered[i];
+
+      // Check for path traversal patterns
+      // Allow '..' inside brackets (e.g., [...slug] or [[...slug]]) - these are routing patterns
+      // Reject bare '..' that would traverse directories
+      if (this.containsPathTraversal(segment)) {
+        throw new Error(`Path traversal detected in segment: ${segment}`);
+      }
+
+      // Check for URL-encoded traversal attempts
+      if (segment.includes('%2e') || segment.includes('%2E')) {
+        throw new Error(`Encoded path traversal detected in segment: ${segment}`);
+      }
+
+      // Only first segment can be absolute (start with /)
+      if (i > 0 && segment.startsWith('/')) {
+        throw new Error(`Absolute path in non-first segment: ${segment}`);
+      }
+    }
+
+    // Join and normalize
+    return filtered
       .join('/')
       .split('/')
-      .filter((part) => part !== '..' && part !== '.')
+      .filter((part) => part !== '.' && part !== '') // Remove empty and '.' segments
       .join('/')
-      .replace(/\/+/g, '/')
-      .replace(/\/$/, '');
+      .replace(/\/+/g, '/') // Collapse multiple slashes
+      .replace(/\/$/, ''); // Remove trailing slash
+  }
+
+  /**
+   * Check if a path segment contains actual path traversal (not routing patterns)
+   */
+  private containsPathTraversal(segment: string): boolean {
+    // Remove content inside brackets (framework routing patterns like [...slug])
+    // This allows [...slug] but rejects ../foo
+    const withoutBrackets = segment.replace(/\[[^\]]*\]/g, '');
+
+    // Check for '..' in the remaining content
+    // Match '..' at start, end, or surrounded by slashes/path separators
+    return /(?:^|[\\/])\.\.(?:$|[\\/])/.test(withoutBrackets) ||
+      withoutBrackets === '..';
   }
 
   /**
@@ -214,6 +257,8 @@ export abstract class BaseAdapter implements FrameworkAdapter {
 
   /**
    * Try to resolve a base path to an actual file
+   *
+   * Uses parallel I/O for better performance when checking multiple extensions.
    */
   protected async resolveToActualFile(
     basePath: string,
@@ -222,24 +267,43 @@ export abstract class BaseAdapter implements FrameworkAdapter {
     const extensions = ['', ...this.pageExtensions, '.ts', '.js', '.tsx', '.jsx'];
     const indexFiles = ['index.ts', 'index.js', ...this.pageExtensions.map((e) => `index${e}`)];
 
-    // Try with extensions
-    for (const ext of extensions) {
-      const fullPath = basePath + ext;
-      if (await ctx.fileSource.exists(fullPath)) {
-        const isDir = await ctx.fileSource.isDirectory(fullPath);
-        if (!isDir) {
-          return fullPath;
+    // Check all extensions in parallel
+    const extensionPaths = extensions.map((ext) => basePath + ext);
+    const extensionChecks = await Promise.all(
+      extensionPaths.map(async (fullPath) => {
+        try {
+          const exists = await ctx.fileSource.exists(fullPath);
+          if (!exists) return null;
+          const isDir = await ctx.fileSource.isDirectory(fullPath);
+          return isDir ? null : fullPath;
+        } catch {
+          return null;
         }
-      }
+      })
+    );
+
+    // Return first non-null result (preserves extension priority order)
+    for (const result of extensionChecks) {
+      if (result) return result;
     }
 
-    // Try as directory with index file
-    if (await ctx.fileSource.isDirectory(basePath)) {
-      for (const indexFile of indexFiles) {
-        const indexPath = `${basePath}/${indexFile}`;
-        if (await ctx.fileSource.exists(indexPath)) {
-          return indexPath;
-        }
+    // Try as directory with index file (parallel check)
+    const isDir = await ctx.fileSource.isDirectory(basePath);
+    if (isDir) {
+      const indexPaths = indexFiles.map((indexFile) => `${basePath}/${indexFile}`);
+      const indexChecks = await Promise.all(
+        indexPaths.map(async (indexPath) => {
+          try {
+            const exists = await ctx.fileSource.exists(indexPath);
+            return exists ? indexPath : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      for (const result of indexChecks) {
+        if (result) return result;
       }
     }
 
