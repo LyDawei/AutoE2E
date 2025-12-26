@@ -12,18 +12,19 @@ const program = new Command();
 
 program
   .name('yokohama')
-  .description('Agentic visual regression test harness for SvelteKit')
+  .description('Agentic visual regression and logic test harness for SvelteKit')
   .version('1.0.0');
 
 // Analyze command
 program
   .command('analyze <pr-url>')
-  .description('Analyze a GitHub PR and generate Playwright visual regression tests')
+  .description('Analyze a GitHub PR and generate Playwright tests (visual + logic)')
   .option('-o, --output <dir>', 'Output directory for generated tests', DEFAULTS.outputDir)
   .option('--test-url <url>', 'Test environment URL (overrides TEST_URL env var)')
   .option('--project <path>', 'Path to SvelteKit project for route discovery')
   .option('--dry-run', 'Preview what would be generated without writing files')
   .option('--skip-ai', 'Skip AI analysis and use heuristics only')
+  .option('--visual-only', 'Only generate visual regression tests (legacy mode)')
   .option('--model <model>', 'OpenAI model to use', 'gpt-4-turbo-preview')
   .option('-v, --verbose', 'Enable verbose logging')
   .action(async (prUrl: string, options) => {
@@ -51,54 +52,139 @@ program
 
       spinner.text = 'Analyzing PR...';
 
-      const result = await yokohama.analyze(prUrl, {
-        dryRun: options.dryRun,
-        skipAI: options.skipAi,
-      });
+      // Use unified analysis by default, visual-only if flag is set
+      if (options.visualOnly) {
+        // Legacy visual-only mode
+        const result = await yokohama.analyze(prUrl, {
+          dryRun: options.dryRun,
+          skipAI: options.skipAi,
+        });
 
-      spinner.succeed('Analysis complete!');
+        spinner.succeed('Analysis complete!');
 
-      console.log('');
-      console.log(chalk.bold('Results:'));
-      console.log(chalk.gray('─'.repeat(50)));
-      console.log(`PR Number: ${chalk.cyan(`#${result.prNumber}`)}`);
-      console.log(`Routes to test: ${chalk.cyan(result.routes.length)}`);
-
-      if (result.routes.length > 0) {
         console.log('');
-        console.log(chalk.bold('Routes:'));
-        for (const route of result.routes) {
-          const priority = route.priority === 'high'
-            ? chalk.red(route.priority)
-            : route.priority === 'medium'
-              ? chalk.yellow(route.priority)
-              : chalk.green(route.priority);
-          const auth = route.authRequired ? chalk.magenta(' (auth)') : '';
-          console.log(`  ${chalk.cyan(route.route)}${auth} - ${priority}`);
-          console.log(`    ${chalk.gray(route.reason)}`);
-        }
-      }
-
-      if (result.filePath) {
-        console.log('');
-        console.log(`Generated test: ${chalk.green(result.filePath)}`);
-      } else if (options.dryRun) {
-        console.log('');
-        console.log(chalk.yellow('Dry run - no files written'));
-        console.log('');
-        console.log(chalk.bold('Generated test content:'));
+        console.log(chalk.bold('Results (Visual Only):'));
         console.log(chalk.gray('─'.repeat(50)));
-        console.log(result.generatedTest.content);
-      }
+        console.log(`PR Number: ${chalk.cyan(`#${result.prNumber}`)}`);
+        console.log(`Routes to test: ${chalk.cyan(result.routes.length)}`);
 
-      if (result.analysis) {
+        if (result.routes.length > 0) {
+          console.log('');
+          console.log(chalk.bold('Routes:'));
+          for (const route of result.routes) {
+            const priority = route.priority === 'high'
+              ? chalk.red(route.priority)
+              : route.priority === 'medium'
+                ? chalk.yellow(route.priority)
+                : chalk.green(route.priority);
+            const auth = route.authRequired ? chalk.magenta(' (auth)') : '';
+            console.log(`  ${chalk.cyan(route.route)}${auth} - ${priority}`);
+            console.log(`    ${chalk.gray(route.reason)}`);
+          }
+        }
+
+        if (result.filePath) {
+          console.log('');
+          console.log(`Generated test: ${chalk.green(result.filePath)}`);
+        } else if (options.dryRun) {
+          console.log('');
+          console.log(chalk.yellow('Dry run - no files written'));
+          console.log('');
+          console.log(chalk.bold('Generated test content:'));
+          console.log(chalk.gray('─'.repeat(50)));
+          console.log(result.generatedTest.content);
+        }
+
+        if (result.analysis) {
+          console.log('');
+          console.log(`AI Confidence: ${chalk.cyan((result.analysis.confidence * 100).toFixed(0) + '%')}`);
+        }
+
         console.log('');
-        console.log(`AI Confidence: ${chalk.cyan((result.analysis.confidence * 100).toFixed(0) + '%')}`);
-      }
+        console.log(chalk.gray('Run the tests with:'));
+        console.log(chalk.cyan(`  npx playwright test ${result.generatedTest.filePath}`));
+      } else {
+        // Unified analysis (visual + logic)
+        const result = await yokohama.analyzeUnified(prUrl, {
+          dryRun: options.dryRun,
+          skipAI: options.skipAi,
+        });
 
-      console.log('');
-      console.log(chalk.gray('Run the tests with:'));
-      console.log(chalk.cyan(`  npx playwright test ${result.generatedTest.filePath}`));
+        spinner.succeed('Analysis complete!');
+
+        console.log('');
+        console.log(chalk.bold('Results:'));
+        console.log(chalk.gray('─'.repeat(50)));
+        console.log(`PR Number: ${chalk.cyan(`#${result.prNumber}`)}`);
+
+        // File classification summary
+        console.log('');
+        console.log(chalk.bold('Changed Files:'));
+        console.log(`  Visual: ${chalk.blue(result.fileClassification.visual)}`);
+        console.log(`  Logic:  ${chalk.yellow(result.fileClassification.logic)}`);
+        console.log(`  Mixed:  ${chalk.magenta(result.fileClassification.mixed)}`);
+
+        // Test summary
+        console.log('');
+        console.log(chalk.bold('Tests Generated:'));
+        console.log(`  Visual: ${chalk.blue(result.generatedTest.testCounts.visual)}`);
+        console.log(`  Logic:  ${chalk.yellow(result.generatedTest.testCounts.logic)}`);
+        console.log(`  Total routes: ${chalk.cyan(result.generatedTest.testCounts.total)}`);
+
+        if (result.routes.length > 0) {
+          console.log('');
+          console.log(chalk.bold('Routes to Test:'));
+          for (const route of result.routes) {
+            const priority = route.priority === 'high'
+              ? chalk.red(route.priority)
+              : route.priority === 'medium'
+                ? chalk.yellow(route.priority)
+                : chalk.green(route.priority);
+            const auth = route.authRequired ? chalk.magenta(' (auth)') : '';
+
+            // Show test types
+            const testTypes = route.testTypes.map((t) => {
+              if (t.category === 'visual') {
+                return chalk.blue('visual');
+              } else {
+                return chalk.yellow(t.subtype);
+              }
+            }).join(', ');
+
+            console.log(`  ${chalk.cyan(route.route)}${auth} - ${priority}`);
+            console.log(`    Types: ${testTypes}`);
+            console.log(`    ${chalk.gray(route.reason)}`);
+
+            // Show logic test details if present
+            const logicTests = route.testTypes.filter((t) => t.category === 'logic');
+            for (const lt of logicTests) {
+              const details = lt.details as { action: string };
+              console.log(`    ${chalk.yellow('→')} ${details.action}`);
+            }
+          }
+        }
+
+        if (result.filePath) {
+          console.log('');
+          console.log(`Generated test: ${chalk.green(result.filePath)}`);
+        } else if (options.dryRun) {
+          console.log('');
+          console.log(chalk.yellow('Dry run - no files written'));
+          console.log('');
+          console.log(chalk.bold('Generated test content:'));
+          console.log(chalk.gray('─'.repeat(50)));
+          console.log(result.generatedTest.content);
+        }
+
+        if (result.analysis) {
+          console.log('');
+          console.log(`AI Confidence: ${chalk.cyan((result.analysis.confidence * 100).toFixed(0) + '%')}`);
+        }
+
+        console.log('');
+        console.log(chalk.gray('Run the tests with:'));
+        console.log(chalk.cyan(`  npx playwright test ${result.generatedTest.filePath}`));
+      }
     } catch (error) {
       spinner.fail('Analysis failed');
       console.error(chalk.red(error instanceof Error ? error.message : String(error)));

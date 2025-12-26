@@ -202,3 +202,124 @@ export function filterVisuallyRelevantFiles(files: ChangedFile[]): ChangedFile[]
     return true;
   });
 }
+
+/**
+ * Patterns that indicate logic/API-relevant files
+ */
+const logicPatterns = [
+  /\+server\.(ts|js)$/,           // SvelteKit API endpoints
+  /\+page\.server\.(ts|js)$/,     // SvelteKit server-side page logic
+  /\+layout\.server\.(ts|js)$/,   // SvelteKit server-side layout logic
+  /actions\.(ts|js)$/,            // Form actions
+  /\/api\//,                      // API directory
+  /\/services?\//,                // Service files
+  /\/lib\/server\//,              // Server-only lib code
+  /\/schemas?\//,                 // Validation schemas
+  /\/validators?\//,              // Validators
+  /\/middleware\//,               // Middleware
+  /\/hooks\.(server\.)?(ts|js)$/, // SvelteKit hooks
+];
+
+/**
+ * Patterns to ignore for logic files
+ */
+const logicIgnorePatterns = [
+  /\.test\./,
+  /\.spec\./,
+  /\.d\.ts$/,
+  /node_modules/,
+  /\.config\./,
+];
+
+/**
+ * Check if a filename matches logic-relevant patterns
+ */
+function isLogicFile(filename: string): boolean {
+  const matchesLogic = logicPatterns.some((pattern) => pattern.test(filename));
+  const shouldIgnore = logicIgnorePatterns.some((pattern) => pattern.test(filename));
+  return matchesLogic && !shouldIgnore;
+}
+
+/**
+ * Check if a filename matches visual-relevant patterns
+ */
+function isVisualFile(filename: string): boolean {
+  const visualExtensions = [
+    '.svelte',
+    '.css',
+    '.scss',
+    '.sass',
+    '.less',
+    '.styl',
+    '.postcss',
+    '.tsx',
+    '.jsx',
+    '.vue',
+    '.html',
+  ];
+
+  const ignorePatterns = [
+    /\.test\./,
+    /\.spec\./,
+    /\.d\.ts$/,
+    /node_modules/,
+    /\.config\./,
+    /package.*\.json$/,
+    /tsconfig.*\.json$/,
+    /\.eslint/,
+    /\.prettier/,
+    /\.gitignore/,
+    /README/i,
+    /CHANGELOG/i,
+    // Exclude server-only files from visual
+    /\+server\.(ts|js)$/,
+    /\+page\.server\.(ts|js)$/,
+    /\+layout\.server\.(ts|js)$/,
+    /\/lib\/server\//,
+  ];
+
+  const hasVisualExtension = visualExtensions.some((ext) => filename.endsWith(ext));
+  if (!hasVisualExtension) return false;
+
+  const shouldIgnore = ignorePatterns.some((pattern) => pattern.test(filename));
+  return !shouldIgnore;
+}
+
+/**
+ * Filter files to only those that could affect logic/API behavior
+ */
+export function filterLogicRelevantFiles(files: ChangedFile[]): ChangedFile[] {
+  return files.filter((file) => isLogicFile(file.filename));
+}
+
+/**
+ * Classify changed files into visual, logic, or mixed categories
+ */
+export interface ClassifiedFiles {
+  visual: ChangedFile[];
+  logic: ChangedFile[];
+  mixed: ChangedFile[];
+}
+
+export function classifyChangedFiles(files: ChangedFile[]): ClassifiedFiles {
+  const visual: ChangedFile[] = [];
+  const logic: ChangedFile[] = [];
+  const mixed: ChangedFile[] = [];
+
+  for (const file of files) {
+    const isVisual = isVisualFile(file.filename);
+    const isLogic = isLogicFile(file.filename);
+
+    if (isVisual && isLogic) {
+      // This shouldn't normally happen with our patterns, but handle it
+      mixed.push(file);
+    } else if (isVisual) {
+      visual.push(file);
+    } else if (isLogic) {
+      logic.push(file);
+    }
+    // Files that match neither are ignored (configs, tests, etc.)
+  }
+
+  return { visual, logic, mixed };
+}

@@ -1,4 +1,11 @@
-import type { RouteTestRecommendation, LoginFlowAnalysis } from '../ai/types.js';
+import type {
+  RouteTestRecommendation,
+  LoginFlowAnalysis,
+  UnifiedTestRecommendation,
+  VisualTestDetails,
+} from '../ai/types.js';
+import { generateLogicTestsSection, generateLoginBeforeEach } from './logic-templates.js';
+import { routeToScreenshotName } from '../utils/route-helpers.js';
 
 /**
  * Generate a complete Playwright test file
@@ -69,53 +76,6 @@ function generateSingleTest(route: RouteTestRecommendation): string {
 }
 
 /**
- * Generate login beforeEach hook
- */
-function generateLoginBeforeEach(loginFlow?: LoginFlowAnalysis): string {
-  if (!loginFlow) {
-    // Generate a generic login flow that users can customize
-    return `    test.beforeEach(async ({ page }) => {
-      // TODO: Customize login flow for your application
-      await page.goto('/login');
-      await page.fill('input[type="email"], input[name="email"], #email', process.env.TEST_USER!);
-      await page.fill('input[type="password"], input[name="password"], #password', process.env.TEST_PASSWORD!);
-      await page.click('button[type="submit"]');
-      await page.waitForLoadState('networkidle');
-    });`;
-  }
-
-  const successWait = loginFlow.successUrl
-    ? `await page.waitForURL('${loginFlow.successUrl}');`
-    : `await page.waitForSelector('${loginFlow.successIndicator}');`;
-
-  return `    test.beforeEach(async ({ page }) => {
-      await page.goto('${loginFlow.loginUrl}');
-      await page.fill('${loginFlow.usernameSelector}', process.env.TEST_USER!);
-      await page.fill('${loginFlow.passwordSelector}', process.env.TEST_PASSWORD!);
-      await page.click('${loginFlow.submitSelector}');
-      ${successWait}
-    });`;
-}
-
-/**
- * Convert route path to a valid screenshot name
- */
-function routeToScreenshotName(route: string): string {
-  if (route === '/') {
-    return 'home';
-  }
-
-  return route
-    .replace(/^\//, '') // Remove leading slash
-    .replace(/\//g, '-') // Replace slashes with dashes
-    .replace(/\[([^\]]+)\]/g, '$1') // Remove brackets from dynamic segments
-    .replace(/\.\.\./g, 'rest') // Handle rest params
-    .replace(/[^a-zA-Z0-9-]/g, '-') // Replace other special chars
-    .replace(/-+/g, '-') // Collapse multiple dashes
-    .replace(/-$/, ''); // Remove trailing dash
-}
-
-/**
  * Generate a fallback heuristic-based test file when AI is unavailable
  */
 export function generateFallbackTestFile(
@@ -131,4 +91,124 @@ export function generateFallbackTestFile(
   }));
 
   return generateTestFile(prNumber, recommendations);
+}
+
+// ============================================
+// Unified Test Generation (Visual + Logic)
+// ============================================
+
+/**
+ * Generate a unified Playwright test file with both visual and logic tests
+ */
+export function generateUnifiedTestFile(
+  prNumber: number,
+  routes: UnifiedTestRecommendation[],
+  loginFlow?: LoginFlowAnalysis
+): string {
+  const imports = `import { test, expect } from '@playwright/test';`;
+
+  const visualSection = generateVisualTestsSection(routes, loginFlow);
+  const logicSection = generateLogicTestsSection(routes, loginFlow);
+
+  // Combine sections
+  let content = `${imports}
+
+test.describe('PR #${prNumber} Tests', () => {
+`;
+
+  if (visualSection) {
+    content += visualSection;
+  }
+
+  if (visualSection && logicSection) {
+    content += '\n';
+  }
+
+  if (logicSection) {
+    content += logicSection;
+  }
+
+  content += '});\n';
+
+  return content;
+}
+
+/**
+ * Generate the visual tests section of a unified test file
+ */
+function generateVisualTestsSection(
+  routes: UnifiedTestRecommendation[],
+  loginFlow?: LoginFlowAnalysis
+): string {
+  const visualRoutes = routes.filter((r) =>
+    r.testTypes.some((t) => t.category === 'visual')
+  );
+
+  if (visualRoutes.length === 0) {
+    return '';
+  }
+
+  const publicRoutes = visualRoutes.filter((r) => !r.authRequired);
+  const authRoutes = visualRoutes.filter((r) => r.authRequired);
+
+  let content = `  test.describe('Visual Regression', () => {\n`;
+
+  // Public visual tests
+  if (publicRoutes.length > 0) {
+    content += `    test.describe('Public Pages', () => {\n`;
+    for (const route of publicRoutes) {
+      content += generateUnifiedVisualTest(route, '      ') + '\n';
+    }
+    content += `    });\n`;
+  }
+
+  // Authenticated visual tests
+  if (authRoutes.length > 0) {
+    content += `\n    test.describe('Authenticated Pages', () => {\n`;
+    content += generateLoginBeforeEach(loginFlow) + '\n\n';
+    for (const route of authRoutes) {
+      content += generateUnifiedVisualTest(route, '      ') + '\n';
+    }
+    content += `    });\n`;
+  }
+
+  content += `  });\n`;
+  return content;
+}
+
+/**
+ * Generate a single visual test from unified recommendation
+ */
+function generateUnifiedVisualTest(
+  route: UnifiedTestRecommendation,
+  indent: string = '    '
+): string {
+  const visualTestType = route.testTypes.find((t) => t.category === 'visual');
+  if (!visualTestType) {
+    return '';
+  }
+
+  const details = visualTestType.details as VisualTestDetails;
+  const testName = route.route === '/' ? 'Home page' : route.route;
+  const screenshotName = details.screenshotName || routeToScreenshotName(route.route);
+  const waitStrategy = route.waitStrategy || 'networkidle';
+
+  let waitFor = '';
+  if (details.waitFor) {
+    waitFor = `\n${indent}  await page.waitForSelector('${details.waitFor}');`;
+  }
+
+  let maskOption = '';
+  if (details.maskSelectors && details.maskSelectors.length > 0) {
+    const masks = details.maskSelectors.map((s) => `page.locator('${s}')`).join(', ');
+    maskOption = `,\n${indent}    mask: [${masks}]`;
+  }
+
+  return `${indent}test('${testName}', async ({ page }) => {
+${indent}  await page.goto('${route.route}');
+${indent}  await page.waitForLoadState('${waitStrategy}');${waitFor}
+${indent}  await expect(page).toHaveScreenshot('${screenshotName}.png', {
+${indent}    maxDiffPixels: 100${maskOption}
+${indent}  });
+${indent}});`;
 }

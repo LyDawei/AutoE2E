@@ -1,3 +1,6 @@
+/** HTTP methods that can be exported from +server.ts */
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
 export interface Route {
   /** URL path (e.g., "/", "/login", "/portal/dashboard") */
   path: string;
@@ -13,6 +16,16 @@ export interface Route {
   isDynamic: boolean;
   /** Route group name if any (e.g., "auth", "marketing") */
   group?: string;
+  /** Server-side files (+server.ts, +page.server.ts, +layout.server.ts) */
+  serverFiles: string[];
+  /** Form actions defined in +page.server.ts (e.g., "default", "create", "update") */
+  actions: string[];
+  /** HTTP methods exported from +server.ts (GET, POST, PUT, PATCH, DELETE) */
+  apiMethods: HttpMethod[];
+  /** Whether this route has server-side form handling logic */
+  hasFormHandler: boolean;
+  /** Whether this route has an API endpoint (+server.ts) */
+  hasApiEndpoint: boolean;
 }
 
 export interface ImportGraph {
