@@ -14,5 +14,13 @@ export const DEFAULTS = {
 
 export const GITHUB_API_BASE = 'https://api.github.com';
 
-export const SUPPORTED_FRAMEWORKS = ['sveltekit'] as const;
+export const SUPPORTED_FRAMEWORKS = [
+  'sveltekit',
+  'nextjs',
+  'nextjs-app',
+  'nextjs-pages',
+  'nuxt',
+  'remix',
+  'react-router',
+] as const;
 export type SupportedFramework = (typeof SUPPORTED_FRAMEWORKS)[number];

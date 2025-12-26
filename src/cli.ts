@@ -3,16 +3,19 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { AutoE2E } from './index.js';
+import { AutoE2E, getSupportedFrameworks, isFrameworkSupported } from './index.js';
+import type { FrameworkType } from './frameworks/types.js';
 import { setLogLevel } from './utils/logger.js';
 import { loadEnvConfig } from './config/env.js';
 import { DEFAULTS } from './config/defaults.js';
 
 const program = new Command();
 
+const supportedFrameworks = getSupportedFrameworks();
+
 program
   .name('autoe2e')
-  .description('Agentic visual regression and logic test harness for SvelteKit')
+  .description('Agentic visual regression and logic test harness for modern frontend frameworks')
   .version('1.0.0');
 
 // Analyze command
@@ -21,7 +24,9 @@ program
   .description('Analyze a GitHub PR and generate Playwright tests (visual + logic)')
   .option('-o, --output <dir>', 'Output directory for generated tests', DEFAULTS.outputDir)
   .option('--test-url <url>', 'Test environment URL (overrides TEST_URL env var)')
-  .option('--project <path>', 'Path to SvelteKit project for route discovery')
+  .option('--project <path>', 'Path to project for local route discovery')
+  .option('--framework <type>', `Framework type (auto-detected if not specified). Options: ${supportedFrameworks.join(', ')}`)
+  .option('--app <path>', 'App path within monorepo (e.g., "packages/web")')
   .option('--dry-run', 'Preview what would be generated without writing files')
   .option('--skip-ai', 'Skip AI analysis and use heuristics only')
   .option('--visual-only', 'Only generate visual regression tests (legacy mode)')
@@ -35,6 +40,13 @@ program
     const spinner = ora('Initializing...').start();
 
     try {
+      // Validate framework option if provided
+      if (options.framework && !isFrameworkSupported(options.framework)) {
+        console.error(chalk.red(`Invalid framework: ${options.framework}`));
+        console.error(chalk.gray(`Supported frameworks: ${supportedFrameworks.join(', ')}`));
+        process.exit(1);
+      }
+
       // Load environment config
       const envConfig = loadEnvConfig();
 
@@ -46,6 +58,8 @@ program
         testPassword: envConfig.testPassword,
         outputDir: options.output,
         projectPath: options.project,
+        framework: options.framework as FrameworkType | undefined,
+        appPath: options.app,
         model: options.model,
         logLevel: options.verbose ? 'debug' : 'info',
       });
@@ -66,6 +80,12 @@ program
         console.log(chalk.bold('Results (Visual Only):'));
         console.log(chalk.gray('─'.repeat(50)));
         console.log(`PR Number: ${chalk.cyan(`#${result.prNumber}`)}`);
+        if (result.framework) {
+          console.log(`Framework: ${chalk.cyan(result.framework)}`);
+        }
+        if (result.monorepo) {
+          console.log(`Monorepo: ${chalk.cyan(result.monorepo.type)} (${result.monorepo.workspaces.length} workspaces)`);
+        }
         console.log(`Routes to test: ${chalk.cyan(result.routes.length)}`);
 
         if (result.routes.length > 0) {
