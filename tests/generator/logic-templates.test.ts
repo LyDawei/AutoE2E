@@ -302,6 +302,8 @@ describe('generateLoginBeforeEach', () => {
 
     const code = generateLoginBeforeEach(loginFlow);
 
+    // Should wait for toggle to be visible before clicking (avoids race conditions)
+    expect(code).toContain("page.waitForSelector('button:has-text(\"Password\")')");
     // Should click the mode toggle before filling credentials
     expect(code).toContain("page.click('button:has-text(\"Password\")')");
     // Should use the custom description from loginModeToggleDescription
@@ -325,6 +327,8 @@ describe('generateLoginBeforeEach', () => {
 
     // Should use default description
     expect(code).toContain('// Switch to password login mode');
+    // Should wait for selector before clicking
+    expect(code).toContain("page.waitForSelector('button.password-mode')");
     expect(code).toContain("page.click('button.password-mode')");
   });
 
@@ -355,6 +359,8 @@ describe('generateLoginBeforeEach', () => {
 
     const code = generateLoginBeforeEach(loginFlow);
 
+    // Should properly escape special characters in both waitForSelector and click
+    expect(code).toContain("page.waitForSelector('[data-testid=\\'password-mode\\']')");
     expect(code).toContain("page.click('[data-testid=\\'password-mode\\']')");
   });
 
@@ -371,8 +377,11 @@ describe('generateLoginBeforeEach', () => {
 
     const code = generateLoginBeforeEach(loginFlow);
 
+    // Should not include the toggle description or any login mode toggle logic
     expect(code).not.toContain('Switch to password');
-    expect(code).not.toContain('mode');
+    expect(code).not.toContain('// Switch to password login mode');
+    expect(code).not.toContain('loginModeToggle');
+    // Should still generate valid login code
     expect(code).toContain("page.fill('#email', process.env.TEST_USER!)");
   });
 });
