@@ -81,7 +81,7 @@ Respond with valid JSON only (no markdown, no explanation):
  * Prompt for inferring login flow from codebase
  */
 export function buildLoginFlowPrompt(loginPageContent: string, layoutContent?: string): string {
-  return `Analyze this SvelteKit login page to extract the login flow selectors.
+  return `Analyze this login page to extract the login flow selectors.
 
 ## Login Page Content
 \`\`\`svelte
@@ -104,6 +104,7 @@ Extract the CSS selectors or data-testid attributes for:
 3. Submit/login button
 4. Success indicator (what element appears after successful login)
 5. Expected URL after successful login
+6. **Login mode toggle** (if the page has multiple login modes like "Verification Code" vs "Password", identify the button/link to switch to password mode)
 
 ## Response Format
 Respond with valid JSON only:
@@ -113,8 +114,15 @@ Respond with valid JSON only:
   "passwordSelector": "input[name='password']",
   "submitSelector": "button[type='submit']",
   "successIndicator": "[data-testid='dashboard']",
-  "successUrl": "/dashboard"
+  "successUrl": "/dashboard",
+  "loginModeToggleSelector": "button:has-text('Password')",
+  "loginModeToggleDescription": "Switch to password login mode"
 }
+
+## Important Notes:
+- If the login page has tabs, toggles, or buttons to switch between login methods (e.g., "Verification Code" / "Password", "Email" / "Phone", "SSO" / "Password"), set loginModeToggleSelector to the selector that switches to PASSWORD mode
+- If no mode toggle exists (direct password login), omit loginModeToggleSelector and loginModeToggleDescription
+- Prefer data-testid attributes when available, then id, then name, then type-based selectors
 
 If you cannot determine a selector with confidence, use a reasonable default like:
 - Username: input[type='email'], input[name='email'], #email
@@ -153,22 +161,34 @@ ${
   loginFlow
     ? `## Login Flow
 - Login URL: ${loginFlow.loginUrl}
+${loginFlow.loginModeToggleSelector ? `- Login mode toggle: ${loginFlow.loginModeToggleSelector} (${loginFlow.loginModeToggleDescription || 'click to enable password login'})` : ''}
 - Username selector: ${loginFlow.usernameSelector}
 - Password selector: ${loginFlow.passwordSelector}
 - Submit selector: ${loginFlow.submitSelector}
 - Success indicator: ${loginFlow.successIndicator}
-- Success URL: ${loginFlow.successUrl || 'N/A'}`
+- Success URL: ${loginFlow.successUrl || 'N/A'}
+
+**CRITICAL: Credentials MUST use environment variables:**
+- Username: process.env.TEST_USER!
+- Password: process.env.TEST_PASSWORD!
+DO NOT use placeholder values like 'testUser' or 'testPass'. Always use the exact expressions above.`
     : ''
 }
 
 ## Requirements
 1. Group tests into "Public Pages" and "Authenticated Pages" describe blocks
-2. For authenticated tests, use beforeEach to handle login
-3. Use process.env.TEST_USER and process.env.TEST_PASSWORD for credentials
-4. Wait for network idle before screenshots
-5. Use descriptive screenshot names based on route
-6. Handle errors gracefully
-7. Use maxDiffPixels: 100 for tolerance
+2. For authenticated tests, use beforeEach to handle login:
+   - Navigate to login URL
+   - If loginModeToggleSelector is provided, click it first to switch to password mode
+   - Fill username with process.env.TEST_USER! (NOT a placeholder string)
+   - Fill password with process.env.TEST_PASSWORD! (NOT a placeholder string)
+   - Click submit button
+   - Wait for success indicator or URL
+3. Wait for network idle before screenshots
+4. Use descriptive screenshot names based on route
+5. Handle errors gracefully
+6. Use maxDiffPixels: 100 for tolerance
+7. **NEVER use literal credential values** - always use process.env.TEST_USER! and process.env.TEST_PASSWORD!
 
 ## Response Format
 Return ONLY the TypeScript code for the test file, no markdown code blocks or explanation:
@@ -462,12 +482,17 @@ ${
   loginFlow
     ? `## Login Flow (for authenticated routes)
 - Login URL: ${loginFlow.loginUrl}
+${loginFlow.loginModeToggleSelector ? `- Login mode toggle: ${loginFlow.loginModeToggleSelector} (${loginFlow.loginModeToggleDescription || 'click to enable password login'})` : ''}
 - Username selector: ${loginFlow.usernameSelector}
 - Password selector: ${loginFlow.passwordSelector}
 - Submit selector: ${loginFlow.submitSelector}
 - Success indicator: ${loginFlow.successIndicator}
 - Success URL: ${loginFlow.successUrl || 'after login redirect'}
-- Credentials: process.env.TEST_USER and process.env.TEST_PASSWORD`
+
+**CRITICAL: Credentials MUST use environment variables:**
+- Username: process.env.TEST_USER!
+- Password: process.env.TEST_PASSWORD!
+DO NOT use placeholder values like 'testUser' or 'testPass'. Always use the exact expressions above.`
     : ''
 }
 
@@ -475,7 +500,13 @@ ${
 1. Structure the test file with clear describe blocks:
    - "Visual Regression" for screenshot tests
    - "Functional Tests" for logic/behavioral tests
-2. For authenticated routes, use beforeEach to handle login
+2. For authenticated routes, use beforeEach to handle login:
+   - Navigate to login URL
+   - If loginModeToggleSelector is provided, click it first to switch to password mode
+   - Fill username with process.env.TEST_USER! (NOT a placeholder string)
+   - Fill password with process.env.TEST_PASSWORD! (NOT a placeholder string)
+   - Click submit button
+   - Wait for success indicator or URL
 3. For logic tests:
    - Test THROUGH the UI (fill forms, click buttons)
    - Include both success and validation error scenarios
@@ -487,6 +518,7 @@ ${
    - Wait for networkidle before screenshots
 5. Use data-testid selectors when mentioned, otherwise use semantic selectors
 6. Handle errors gracefully
+7. **NEVER use literal credential values** - always use process.env.TEST_USER! and process.env.TEST_PASSWORD!
 
 ## Response Format
 Return ONLY the TypeScript code for the test file, no markdown code blocks or explanation:
