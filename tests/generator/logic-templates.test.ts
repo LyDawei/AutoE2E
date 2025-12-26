@@ -288,4 +288,100 @@ describe('generateLoginBeforeEach', () => {
 
     expect(code).toContain("waitForSelector('[data-testid=\"dashboard\"]')");
   });
+
+  it('includes login mode toggle click when selector provided', () => {
+    const loginFlow = {
+      loginUrl: '/login',
+      usernameSelector: '#email',
+      passwordSelector: '#password',
+      submitSelector: 'button[type="submit"]',
+      successIndicator: '.dashboard',
+      loginModeToggleSelector: 'button:has-text("Password")',
+      loginModeToggleDescription: 'Click to use password authentication',
+    };
+
+    const code = generateLoginBeforeEach(loginFlow);
+
+    // Should wait for toggle to be visible before clicking (avoids race conditions)
+    expect(code).toContain("page.waitForSelector('button:has-text(\"Password\")')");
+    // Should click the mode toggle before filling credentials
+    expect(code).toContain("page.click('button:has-text(\"Password\")')");
+    // Should use the custom description from loginModeToggleDescription
+    expect(code).toContain('// Click to use password authentication');
+    // Should still fill credentials correctly
+    expect(code).toContain("page.fill('#email', process.env.TEST_USER!)");
+    expect(code).toContain("page.fill('#password', process.env.TEST_PASSWORD!)");
+  });
+
+  it('uses default comment when toggle selector provided without description', () => {
+    const loginFlow = {
+      loginUrl: '/login',
+      usernameSelector: '#email',
+      passwordSelector: '#password',
+      submitSelector: 'button',
+      successIndicator: '.dashboard',
+      loginModeToggleSelector: 'button.password-mode',
+    };
+
+    const code = generateLoginBeforeEach(loginFlow);
+
+    // Should use default description
+    expect(code).toContain('// Switch to password login mode');
+    // Should wait for selector before clicking
+    expect(code).toContain("page.waitForSelector('button.password-mode')");
+    expect(code).toContain("page.click('button.password-mode')");
+  });
+
+  it('does not include mode toggle when selector not provided', () => {
+    const loginFlow = {
+      loginUrl: '/login',
+      usernameSelector: '#email',
+      passwordSelector: '#password',
+      submitSelector: 'button',
+      successIndicator: '.dashboard',
+    };
+
+    const code = generateLoginBeforeEach(loginFlow);
+
+    expect(code).not.toContain('Switch to password login mode');
+    expect(code).not.toContain('loginModeToggle');
+  });
+
+  it('handles login mode toggle with special characters in selector', () => {
+    const loginFlow = {
+      loginUrl: '/login',
+      usernameSelector: '#email',
+      passwordSelector: '#password',
+      submitSelector: 'button',
+      successIndicator: '.dashboard',
+      loginModeToggleSelector: "[data-testid='password-mode']",
+    };
+
+    const code = generateLoginBeforeEach(loginFlow);
+
+    // Should properly escape special characters in both waitForSelector and click
+    expect(code).toContain("page.waitForSelector('[data-testid=\\'password-mode\\']')");
+    expect(code).toContain("page.click('[data-testid=\\'password-mode\\']')");
+  });
+
+  it('ignores description when selector is missing', () => {
+    const loginFlow = {
+      loginUrl: '/login',
+      usernameSelector: '#email',
+      passwordSelector: '#password',
+      submitSelector: 'button',
+      successIndicator: '.dashboard',
+      loginModeToggleDescription: 'Switch to password',
+      // loginModeToggleSelector intentionally missing
+    };
+
+    const code = generateLoginBeforeEach(loginFlow);
+
+    // Should not include the toggle description or any login mode toggle logic
+    expect(code).not.toContain('Switch to password');
+    expect(code).not.toContain('// Switch to password login mode');
+    expect(code).not.toContain('loginModeToggle');
+    // Should still generate valid login code
+    expect(code).toContain("page.fill('#email', process.env.TEST_USER!)");
+  });
 });

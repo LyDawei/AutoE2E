@@ -32,6 +32,10 @@ export interface LoginFlowAnalysis {
   submitSelector: string;
   successIndicator: string;
   successUrl?: string;
+  /** Selector for login mode toggle (e.g., button to switch from verification code to password) */
+  loginModeToggleSelector?: string;
+  /** Description of the login mode that requires the toggle (e.g., "password") */
+  loginModeToggleDescription?: string;
 }
 
 export interface AnalyzeChangesInput {

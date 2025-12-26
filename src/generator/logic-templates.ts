@@ -282,8 +282,16 @@ ${indent}});`;
     ? `await page.waitForURL('${escapeForCode(loginFlow.successUrl)}');`
     : `await page.waitForSelector('${escapeForCode(loginFlow.successIndicator)}');`;
 
+  // Generate login mode toggle click if needed (e.g., switching from verification code to password)
+  // Wait for the toggle to be visible before clicking to avoid race conditions with client-side hydration
+  const modeToggleComment = loginFlow.loginModeToggleDescription || 'Switch to password login mode';
+  const escapedToggleSelector = escapeForCode(loginFlow.loginModeToggleSelector || '');
+  const modeToggleStep = loginFlow.loginModeToggleSelector
+    ? `\n${indent}  // ${modeToggleComment}\n${indent}  await page.waitForSelector('${escapedToggleSelector}');\n${indent}  await page.click('${escapedToggleSelector}');`
+    : '';
+
   return `${indent}test.beforeEach(async ({ page }) => {
-${indent}  await page.goto('${escapeForCode(loginFlow.loginUrl)}');
+${indent}  await page.goto('${escapeForCode(loginFlow.loginUrl)}');${modeToggleStep}
 ${indent}  await page.fill('${escapeForCode(loginFlow.usernameSelector)}', process.env.TEST_USER!);
 ${indent}  await page.fill('${escapeForCode(loginFlow.passwordSelector)}', process.env.TEST_PASSWORD!);
 ${indent}  await page.click('${escapeForCode(loginFlow.submitSelector)}');
