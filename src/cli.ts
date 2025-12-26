@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Yokohama } from './index.js';
+import { AutoE2E } from './index.js';
 import { setLogLevel } from './utils/logger.js';
 import { loadEnvConfig } from './config/env.js';
 import { DEFAULTS } from './config/defaults.js';
@@ -11,7 +11,7 @@ import { DEFAULTS } from './config/defaults.js';
 const program = new Command();
 
 program
-  .name('yokohama')
+  .name('autoe2e')
   .description('Agentic visual regression and logic test harness for SvelteKit')
   .version('1.0.0');
 
@@ -38,7 +38,7 @@ program
       // Load environment config
       const envConfig = loadEnvConfig();
 
-      const yokohama = new Yokohama({
+      const autoe2e = new AutoE2E({
         openaiApiKey: envConfig.openaiApiKey,
         testUrl: options.testUrl || envConfig.testUrl,
         githubToken: envConfig.githubToken,
@@ -55,7 +55,7 @@ program
       // Use unified analysis by default, visual-only if flag is set
       if (options.visualOnly) {
         // Legacy visual-only mode
-        const result = await yokohama.analyze(prUrl, {
+        const result = await autoe2e.analyze(prUrl, {
           dryRun: options.dryRun,
           skipAI: options.skipAi,
         });
@@ -105,7 +105,7 @@ program
         console.log(chalk.cyan(`  npx playwright test ${result.generatedTest.filePath}`));
       } else {
         // Unified analysis (visual + logic)
-        const result = await yokohama.analyzeUnified(prUrl, {
+        const result = await autoe2e.analyzeUnified(prUrl, {
           dryRun: options.dryRun,
           skipAI: options.skipAi,
         });
@@ -218,7 +218,7 @@ program
     }
 
     console.log('');
-    console.log(chalk.gray('Note: Yokohama generates Playwright tests that you run with Playwright CLI.'));
+    console.log(chalk.gray('Note: AutoE2E generates Playwright tests that you run with Playwright CLI.'));
   });
 
 // Baselines command
@@ -237,19 +237,19 @@ program
     try {
       const envConfig = loadEnvConfig();
 
-      const yokohama = new Yokohama({
+      const autoe2e = new AutoE2E({
         openaiApiKey: envConfig.openaiApiKey,
         testUrl: envConfig.testUrl,
       });
 
       if (options.clean) {
-        const deleted = yokohama.deleteBaselines(prNum);
+        const deleted = autoe2e.deleteBaselines(prNum);
         console.log(chalk.green(`Deleted ${deleted} baselines for PR #${prNum}`));
         return;
       }
 
       // Default: list baselines
-      const baselines = yokohama.listBaselines(prNum);
+      const baselines = autoe2e.listBaselines(prNum);
 
       if (baselines.length === 0) {
         console.log(chalk.yellow(`No baselines found for PR #${prNum}`));
@@ -280,13 +280,13 @@ program
     try {
       const envConfig = loadEnvConfig();
 
-      const yokohama = new Yokohama({
+      const autoe2e = new AutoE2E({
         openaiApiKey: envConfig.openaiApiKey,
         testUrl: envConfig.testUrl,
       });
 
-      const testFiles = yokohama.getTestGenerator().listTestFiles();
-      const prs = yokohama.getBaselineManager().listAllPRs();
+      const testFiles = autoe2e.getTestGenerator().listTestFiles();
+      const prs = autoe2e.getBaselineManager().listAllPRs();
 
       console.log(chalk.bold('Generated Tests:'));
       if (testFiles.length === 0) {
@@ -303,7 +303,7 @@ program
         console.log(chalk.gray('  No baselines yet'));
       } else {
         for (const pr of prs) {
-          const baselines = yokohama.listBaselines(pr);
+          const baselines = autoe2e.listBaselines(pr);
           console.log(`  PR #${chalk.cyan(pr)} - ${baselines.length} baselines`);
         }
       }

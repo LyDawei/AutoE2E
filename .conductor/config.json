@@ -1,5 +1,5 @@
 {
-  "name": "yokohama",
+  "name": "autoe2e",
   "description": "Agentic Visual Regression Test Harness for SvelteKit",
   "version": "1.0.0",
   "setup": {
@@ -82,7 +82,7 @@
       },
       {
         "step": 4,
-        "action": "Run Yokohama analysis",
+        "action": "Run AutoE2E analysis",
         "command": "npm run analyze <pr-url> --project /path/to/your/sveltekit/app",
         "description": "Analyze the PR and generate visual regression tests"
       },

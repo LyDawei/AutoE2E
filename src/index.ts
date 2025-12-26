@@ -21,7 +21,7 @@ import type {
 } from './ai/types.js';
 import type { GeneratedTest, UnifiedGeneratedTest } from './generator/types.js';
 
-export interface YokohamaConfig {
+export interface AutoE2EConfig {
   /** OpenAI API key */
   openaiApiKey: string;
   /** Test environment URL */
@@ -76,11 +76,11 @@ export interface UnifiedAnalyzeResult {
   };
 }
 
-export class Yokohama {
+export class AutoE2E {
   private config: Required<
-    Pick<YokohamaConfig, 'openaiApiKey' | 'testUrl' | 'outputDir' | 'baselinesDir' | 'reportsDir'>
+    Pick<AutoE2EConfig, 'openaiApiKey' | 'testUrl' | 'outputDir' | 'baselinesDir' | 'reportsDir'>
   > &
-    YokohamaConfig;
+    AutoE2EConfig;
 
   private github: GitHubClient;
   private openai: OpenAIClient;
@@ -88,7 +88,7 @@ export class Yokohama {
   private baselineManager: BaselineManager;
   private reporter: Reporter;
 
-  constructor(config: YokohamaConfig) {
+  constructor(config: AutoE2EConfig) {
     if (!config.openaiApiKey) {
       throw new ConfigError('openaiApiKey is required');
     }

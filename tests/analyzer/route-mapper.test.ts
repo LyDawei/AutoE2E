@@ -8,7 +8,7 @@ describe('extractApiMethods', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yokohama-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autoe2e-test-'));
   });
 
   afterEach(() => {
@@ -130,7 +130,7 @@ describe('extractFormActions', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yokohama-test-'));
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autoe2e-test-'));
   });
 
   afterEach(() => {

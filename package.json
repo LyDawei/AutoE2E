@@ -1,12 +1,12 @@
 {
-  "name": "yokohama",
+  "name": "autoe2e",
   "version": "1.0.0",
   "description": "Agentic visual regression test harness for SvelteKit",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "yokohama": "dist/cli.js"
+    "autoe2e": "dist/cli.js"
   },
   "scripts": {
     "setup": "./scripts/setup.sh",

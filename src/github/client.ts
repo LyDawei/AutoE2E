@@ -49,7 +49,7 @@ export class GitHubClient {
   private getHeaders(accept?: string): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: accept || 'application/vnd.github.v3+json',
-      'User-Agent': 'Yokohama-VRT/1.0',
+      'User-Agent': 'AutoE2E-VRT/1.0',
     };
 
     if (this.token) {
