@@ -309,6 +309,47 @@ export class GitHubClient {
 
     return data.content;
   }
+
+  /**
+   * Get directory contents at a specific ref
+   */
+  async getDirectoryContents(
+    owner: string,
+    repo: string,
+    dirPath: string,
+    ref: string
+  ): Promise<Array<{ name: string; type: 'file' | 'dir'; path: string }>> {
+    // Validate ref to prevent injection
+    if (!/^[a-zA-Z0-9_\-\/\.]+$/.test(ref)) {
+      throw new GitHubError(`Invalid git reference: ${ref}`);
+    }
+
+    // Validate path doesn't escape
+    if (dirPath.includes('..')) {
+      throw new GitHubError(`Invalid directory path: ${dirPath}`);
+    }
+
+    interface GitHubContentItem {
+      name: string;
+      path: string;
+      type: 'file' | 'dir' | 'symlink' | 'submodule';
+    }
+
+    const endpoint = dirPath
+      ? `/repos/${owner}/${repo}/contents/${dirPath}?ref=${ref}`
+      : `/repos/${owner}/${repo}/contents?ref=${ref}`;
+
+    const data = await this.request<GitHubContentItem[]>(endpoint);
+
+    // Filter to only files and directories
+    return data
+      .filter((item) => item.type === 'file' || item.type === 'dir')
+      .map((item) => ({
+        name: item.name,
+        type: item.type as 'file' | 'dir',
+        path: item.path,
+      }));
+  }
 }
 
 export function createGitHubClient(token?: string): GitHubClient {
