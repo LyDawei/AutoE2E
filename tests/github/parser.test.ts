@@ -4,6 +4,8 @@ import {
   getChangedPaths,
   categorizeChanges,
   filterVisuallyRelevantFiles,
+  filterLogicRelevantFiles,
+  classifyChangedFiles,
 } from '../../src/github/parser.js';
 import type { ChangedFile } from '../../src/github/types.js';
 
@@ -204,5 +206,167 @@ describe('filterVisuallyRelevantFiles', () => {
     const result = filterVisuallyRelevantFiles(files);
 
     expect(result).toHaveLength(0);
+  });
+});
+
+describe('filterLogicRelevantFiles', () => {
+  it('includes +server.ts files', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/routes/api/users/+server.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = filterLogicRelevantFiles(files);
+    expect(result).toHaveLength(1);
+  });
+
+  it('includes +page.server.ts files', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/routes/login/+page.server.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = filterLogicRelevantFiles(files);
+    expect(result).toHaveLength(1);
+  });
+
+  it('includes +layout.server.ts files', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/routes/(auth)/+layout.server.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = filterLogicRelevantFiles(files);
+    expect(result).toHaveLength(1);
+  });
+
+  it('includes files in api directory', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/api/handlers.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = filterLogicRelevantFiles(files);
+    expect(result).toHaveLength(1);
+  });
+
+  it('includes service files', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/services/user-service.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/service/auth.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = filterLogicRelevantFiles(files);
+    expect(result).toHaveLength(2);
+  });
+
+  it('includes lib/server files', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/lib/server/db.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = filterLogicRelevantFiles(files);
+    expect(result).toHaveLength(1);
+  });
+
+  it('includes schema and validator files', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/schemas/user-schema.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/validators/email.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = filterLogicRelevantFiles(files);
+    expect(result).toHaveLength(2);
+  });
+
+  it('excludes test files', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/routes/api/+server.test.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'tests/api.spec.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = filterLogicRelevantFiles(files);
+    expect(result).toHaveLength(0);
+  });
+
+  it('excludes type definition files', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/api/types.d.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = filterLogicRelevantFiles(files);
+    expect(result).toHaveLength(0);
+  });
+});
+
+describe('classifyChangedFiles', () => {
+  it('classifies visual files correctly', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/routes/+page.svelte', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/components/Button.svelte', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/styles/app.css', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = classifyChangedFiles(files);
+    expect(result.visual).toHaveLength(3);
+    expect(result.logic).toHaveLength(0);
+    expect(result.mixed).toHaveLength(0);
+  });
+
+  it('classifies logic files correctly', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/routes/api/users/+server.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/routes/login/+page.server.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/services/auth.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = classifyChangedFiles(files);
+    expect(result.visual).toHaveLength(0);
+    expect(result.logic).toHaveLength(3);
+    expect(result.mixed).toHaveLength(0);
+  });
+
+  it('separates visual and logic files in same PR', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/routes/+page.svelte', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/routes/+page.server.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/components/Form.svelte', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/services/user.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = classifyChangedFiles(files);
+    expect(result.visual).toHaveLength(2);
+    expect(result.logic).toHaveLength(2);
+    expect(result.mixed).toHaveLength(0);
+  });
+
+  it('ignores config and test files', () => {
+    const files: ChangedFile[] = [
+      { filename: 'package.json', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'tsconfig.json', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'src/routes/api/+server.test.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+      { filename: 'README.md', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = classifyChangedFiles(files);
+    expect(result.visual).toHaveLength(0);
+    expect(result.logic).toHaveLength(0);
+    expect(result.mixed).toHaveLength(0);
+  });
+
+  it('handles hooks.server files as logic', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/hooks.server.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = classifyChangedFiles(files);
+    expect(result.logic).toHaveLength(1);
+    expect(result.visual).toHaveLength(0);
+  });
+
+  it('handles middleware files as logic', () => {
+    const files: ChangedFile[] = [
+      { filename: 'src/middleware/auth.ts', status: 'modified', additions: 1, deletions: 1, changes: 2 },
+    ];
+
+    const result = classifyChangedFiles(files);
+    expect(result.logic).toHaveLength(1);
+    expect(result.visual).toHaveLength(0);
   });
 });

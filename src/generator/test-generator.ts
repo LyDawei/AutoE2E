@@ -1,9 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { logger } from '../utils/logger.js';
-import type { RouteTestRecommendation, LoginFlowAnalysis } from '../ai/types.js';
-import type { GeneratedTest, TestGeneratorOptions } from './types.js';
-import { generateTestFile, generateFallbackTestFile } from './templates.js';
+import type {
+  RouteTestRecommendation,
+  LoginFlowAnalysis,
+  UnifiedTestRecommendation,
+} from '../ai/types.js';
+import type { GeneratedTest, UnifiedGeneratedTest, TestGeneratorOptions } from './types.js';
+import { generateTestFile, generateFallbackTestFile, generateUnifiedTestFile } from './templates.js';
 import { DEFAULTS } from '../config/defaults.js';
 
 export class TestGenerator {
@@ -80,6 +84,77 @@ export class TestGenerator {
       content: code,
       routes,
       createdAt: new Date(),
+    };
+  }
+
+  /**
+   * Generate a unified test file with both visual and logic tests
+   */
+  generateUnified(
+    prNumber: number,
+    routes: UnifiedTestRecommendation[],
+    loginFlow?: LoginFlowAnalysis
+  ): UnifiedGeneratedTest {
+    if (routes.length === 0) {
+      logger.warn('No routes to test, generating empty test file');
+    }
+
+    const content = generateUnifiedTestFile(prNumber, routes, loginFlow);
+    const filePath = this.getTestFilePath(prNumber);
+
+    // Count test types
+    const visualCount = routes.filter((r) =>
+      r.testTypes.some((t) => t.category === 'visual')
+    ).length;
+    const logicCount = routes.filter((r) =>
+      r.testTypes.some((t) => t.category === 'logic')
+    ).length;
+
+    logger.info(`Generated unified tests: ${visualCount} visual, ${logicCount} logic`);
+
+    return {
+      prNumber,
+      filePath,
+      content,
+      routes,
+      createdAt: new Date(),
+      testCounts: {
+        visual: visualCount,
+        logic: logicCount,
+        total: routes.length,
+      },
+    };
+  }
+
+  /**
+   * Generate unified test file from AI-generated code
+   */
+  generateUnifiedFromCode(
+    prNumber: number,
+    code: string,
+    routes: UnifiedTestRecommendation[]
+  ): UnifiedGeneratedTest {
+    const filePath = this.getTestFilePath(prNumber);
+
+    // Count test types
+    const visualCount = routes.filter((r) =>
+      r.testTypes.some((t) => t.category === 'visual')
+    ).length;
+    const logicCount = routes.filter((r) =>
+      r.testTypes.some((t) => t.category === 'logic')
+    ).length;
+
+    return {
+      prNumber,
+      filePath,
+      content: code,
+      routes,
+      createdAt: new Date(),
+      testCounts: {
+        visual: visualCount,
+        logic: logicCount,
+        total: routes.length,
+      },
     };
   }
 
