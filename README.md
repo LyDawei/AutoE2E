@@ -109,7 +109,7 @@ npm run list
 │   ├── config/            # Configuration management
 │   ├── utils/             # Utilities (logging, errors)
 │   ├── cli.ts             # CLI commands
-│   └── index.ts           # Main Yokohama class
+│   └── index.ts           # Main AutoE2E class
 ├── tests/                 # Unit tests
 ├── scripts/
 │   └── setup.sh           # Setup script

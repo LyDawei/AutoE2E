@@ -1,14 +1,14 @@
-export class YokohamaError extends Error {
+export class AutoE2EError extends Error {
   constructor(
     message: string,
     public code: string
   ) {
     super(message);
-    this.name = 'YokohamaError';
+    this.name = 'AutoE2EError';
   }
 }
 
-export class GitHubError extends YokohamaError {
+export class GitHubError extends AutoE2EError {
   constructor(
     message: string,
     public statusCode?: number
@@ -18,28 +18,28 @@ export class GitHubError extends YokohamaError {
   }
 }
 
-export class OpenAIError extends YokohamaError {
+export class OpenAIError extends AutoE2EError {
   constructor(message: string) {
     super(message, 'OPENAI_ERROR');
     this.name = 'OpenAIError';
   }
 }
 
-export class RouteAnalysisError extends YokohamaError {
+export class RouteAnalysisError extends AutoE2EError {
   constructor(message: string) {
     super(message, 'ROUTE_ANALYSIS_ERROR');
     this.name = 'RouteAnalysisError';
   }
 }
 
-export class BaselineError extends YokohamaError {
+export class BaselineError extends AutoE2EError {
   constructor(message: string) {
     super(message, 'BASELINE_ERROR');
     this.name = 'BaselineError';
   }
 }
 
-export class ConfigError extends YokohamaError {
+export class ConfigError extends AutoE2EError {
   constructor(message: string) {
     super(message, 'CONFIG_ERROR');
     this.name = 'ConfigError';

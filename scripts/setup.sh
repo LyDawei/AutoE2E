@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Yokohama Setup Script for Conductor
+# AutoE2E Setup Script for Conductor
 # This script sets up the development environment and provides helper commands
 
 set -e
@@ -170,7 +170,7 @@ verify_setup() {
 print_usage() {
     print_header "Setup Complete! 🎉"
 
-    echo -e "Yokohama is ready to use. Here are the available commands:\n"
+    echo -e "AutoE2E is ready to use. Here are the available commands:\n"
 
     echo -e "${GREEN}Analyze a PR:${NC}"
     echo "  npm run analyze <github-pr-url>"
@@ -206,7 +206,7 @@ print_usage() {
 
 # Main setup flow
 main() {
-    print_header "Yokohama Setup"
+    print_header "AutoE2E Setup"
     echo "Agentic Visual Regression Test Harness for SvelteKit"
 
     check_prerequisites
