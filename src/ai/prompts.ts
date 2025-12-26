@@ -168,10 +168,20 @@ ${loginFlow.loginModeToggleSelector ? `- Login mode toggle: ${loginFlow.loginMod
 - Success indicator: ${loginFlow.successIndicator}
 - Success URL: ${loginFlow.successUrl || 'N/A'}
 
-**CRITICAL: Credentials MUST use environment variables:**
+## ⚠️ CRITICAL CREDENTIAL RULES - READ CAREFULLY ⚠️
+Credentials MUST use environment variables EXACTLY as shown:
 - Username: process.env.TEST_USER!
 - Password: process.env.TEST_PASSWORD!
-DO NOT use placeholder values like 'testUser' or 'testPass'. Always use the exact expressions above.`
+
+❌ WRONG - NEVER DO THIS:
+  page.fill('input[name="username"]', 'testUser')      // WRONG!
+  page.fill('input[name="password"]', 'testPassword')  // WRONG!
+  page.fill('input[name="email"]', 'test@example.com') // WRONG!
+  page.fill('input[name="password"]', 'password123')   // WRONG!
+
+✅ CORRECT - ALWAYS DO THIS:
+  page.fill('input[name="username"]', process.env.TEST_USER!)
+  page.fill('input[name="password"]', process.env.TEST_PASSWORD!)`
     : ''
 }
 
@@ -180,15 +190,15 @@ DO NOT use placeholder values like 'testUser' or 'testPass'. Always use the exac
 2. For authenticated tests, use beforeEach to handle login:
    - Navigate to login URL
    - If loginModeToggleSelector is provided, click it first to switch to password mode
-   - Fill username with process.env.TEST_USER! (NOT a placeholder string)
-   - Fill password with process.env.TEST_PASSWORD! (NOT a placeholder string)
+   - Fill username: page.fill(selector, process.env.TEST_USER!)
+   - Fill password: page.fill(selector, process.env.TEST_PASSWORD!)
    - Click submit button
    - Wait for success indicator or URL
 3. Wait for network idle before screenshots
 4. Use descriptive screenshot names based on route
 5. Handle errors gracefully
 6. Use maxDiffPixels: 100 for tolerance
-7. **NEVER use literal credential values** - always use process.env.TEST_USER! and process.env.TEST_PASSWORD!
+7. **ABSOLUTELY NO literal credential strings** - use process.env.TEST_USER! and process.env.TEST_PASSWORD!
 
 ## Response Format
 Return ONLY the TypeScript code for the test file, no markdown code blocks or explanation:
@@ -279,12 +289,225 @@ export function isLoginFlowAnalysis(data: unknown): data is { loginUrl: string; 
 export function extractCodeFromResponse(response: string): string {
   // Remove markdown code blocks if present
   const codeBlockMatch = response.match(/```(?:typescript|ts|javascript|js)?\n?([\s\S]*?)```/);
+  let code: string;
   if (codeBlockMatch) {
-    return codeBlockMatch[1].trim();
+    code = codeBlockMatch[1].trim();
+  } else {
+    // If no code block, assume the entire response is code
+    code = response.trim();
   }
 
-  // If no code block, assume the entire response is code
-  return response.trim();
+  // Validate and fix any placeholder credentials
+  return validateAndFixCredentials(code);
+}
+
+/**
+ * Common placeholder credential patterns that AI models mistakenly generate
+ */
+const PLACEHOLDER_CREDENTIAL_PATTERNS = [
+  // Common username placeholders
+  /['"`]testUser['"`]/gi,
+  /['"`]test_user['"`]/gi,
+  /['"`]testuser['"`]/gi,
+  /['"`]demoUser['"`]/gi,
+  /['"`]demo_user['"`]/gi,
+  /['"`]demouser['"`]/gi,
+  /['"`]user123['"`]/gi,
+  /['"`]admin['"`]/gi,
+  /['"`]testAdmin['"`]/gi,
+  /['"`]test@test\.com['"`]/gi,
+  /['"`]user@example\.com['"`]/gi,
+  /['"`]test@example\.com['"`]/gi,
+  /['"`]admin@example\.com['"`]/gi,
+  // Common password placeholders
+  /['"`]testPassword['"`]/gi,
+  /['"`]test_password['"`]/gi,
+  /['"`]testpassword['"`]/gi,
+  /['"`]password123['"`]/gi,
+  /['"`]Password123['"`]/gi,
+  /['"`]test123['"`]/gi,
+  /['"`]Test123['"`]/gi,
+  /['"`]demo123['"`]/gi,
+  /['"`]Demo123['"`]/gi,
+  /['"`]demoPassword['"`]/gi,
+  /['"`]secret['"`]/gi,
+  /['"`]password['"`]/gi,
+  /['"`]pass['"`]/gi,
+  /['"`]testPass['"`]/gi,
+  /['"`]test_pass['"`]/gi,
+];
+
+/**
+ * Detects if code contains placeholder credentials in page.fill() calls
+ */
+export function detectPlaceholderCredentials(code: string): { hasPlaceholders: boolean; issues: string[] } {
+  const issues: string[] = [];
+
+  // Find all page.fill() calls
+  const fillCalls = code.matchAll(/page\.fill\s*\(\s*(['"`][^'"`]+['"`])\s*,\s*(['"`][^'"`]+['"`]|[^)]+)\s*\)/g);
+
+  for (const match of fillCalls) {
+    const selector = match[1].toLowerCase();
+    const value = match[2];
+
+    // Check if this looks like a credential field (includes data-testid patterns)
+    const isCredentialField =
+      selector.includes('user') ||
+      selector.includes('email') ||
+      selector.includes('password') ||
+      selector.includes('pass') ||
+      selector.includes('login') ||
+      selector.includes('credential') ||
+      selector.includes('auth');
+
+    if (isCredentialField) {
+      // Check if the value is a literal string (not process.env)
+      if (!value.includes('process.env')) {
+        for (const pattern of PLACEHOLDER_CREDENTIAL_PATTERNS) {
+          if (pattern.test(value)) {
+            issues.push(`Found placeholder credential: ${value} in fill(${match[1]}, ...)`);
+            break;
+          }
+        }
+        // Also check for any quoted string value that's not a process.env reference
+        if (value.match(/^['"`][^'"`]+['"`]$/) && !value.includes('process.env')) {
+          const valueContent = value.slice(1, -1).toLowerCase();
+          // Common patterns that suggest test credentials
+          if (
+            valueContent.includes('test') ||
+            valueContent.includes('demo') ||
+            valueContent.includes('123') ||
+            valueContent.includes('password') ||
+            valueContent.includes('admin') ||
+            valueContent.includes('user') ||
+            valueContent.includes('@example') ||
+            valueContent.includes('@test')
+          ) {
+            if (!issues.some((i) => i.includes(value))) {
+              issues.push(`Suspicious credential value: ${value} in fill(${match[1]}, ...) - should use process.env`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return { hasPlaceholders: issues.length > 0, issues };
+}
+
+/**
+ * Validates and fixes placeholder credentials in generated code.
+ * Replaces hardcoded credential values with proper process.env references.
+ *
+ * @param code - The generated test code to validate and fix
+ * @returns The code with placeholder credentials replaced by process.env references
+ *
+ * @remarks
+ * This function implements defense-in-depth by:
+ * 1. Scanning for common placeholder patterns in page.fill() calls
+ * 2. Replacing detected placeholders with process.env.TEST_USER! or process.env.TEST_PASSWORD!
+ * 3. Running a final detection pass to warn about any remaining issues
+ *
+ * Known limitations:
+ * - Does not detect template literals or string concatenation
+ * - Only scans page.fill() calls, not page.type() or other methods
+ */
+export function validateAndFixCredentials(code: string): string {
+  // Defensive input validation
+  if (!code || typeof code !== 'string') {
+    return code || '';
+  }
+
+  let fixedCode = code;
+
+  // Find and fix username/email fill calls with placeholder values
+  const usernamePatterns = [
+    /page\.fill\s*\(\s*(['"`][^'"`]*(?:user|email|login)[^'"`]*['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
+    /page\.fill\s*\(\s*(['"`]input\[(?:name|type)=['""]?(?:user|email|username)['""]?\]['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
+    /page\.fill\s*\(\s*(['"`]#(?:user|email|username|login)[^'"`]*['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
+  ];
+
+  // Find and fix password fill calls with placeholder values
+  const passwordPatterns = [
+    /page\.fill\s*\(\s*(['"`][^'"`]*(?:password|pass|pwd)[^'"`]*['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
+    /page\.fill\s*\(\s*(['"`]input\[(?:name|type)=['""]?(?:password|pass)['""]?\]['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
+    /page\.fill\s*\(\s*(['"`]#(?:password|pass|pwd)[^'"`]*['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
+  ];
+
+  // Replace username placeholders
+  let usernameFixCount = 0;
+  for (const pattern of usernamePatterns) {
+    fixedCode = fixedCode.replace(pattern, (match, selector, value) => {
+      // Defensive null check
+      if (!selector || !value) return match;
+      // Skip if already using process.env
+      if (value.includes('process.env')) {
+        return match;
+      }
+      // Check if value looks like a placeholder
+      const valueLower = value.toLowerCase();
+      if (
+        valueLower.includes('test') ||
+        valueLower.includes('demo') ||
+        valueLower.includes('user') ||
+        valueLower.includes('admin') ||
+        valueLower.includes('@example') ||
+        valueLower.includes('@test') ||
+        valueLower.includes('123')
+      ) {
+        usernameFixCount++;
+        // Log without exposing the actual credential value
+        logger.warn(`Fixed placeholder username in selector ${selector} -> process.env.TEST_USER!`);
+        return `page.fill(${selector}, process.env.TEST_USER!)`;
+      }
+      return match;
+    });
+  }
+
+  // Replace password placeholders
+  let passwordFixCount = 0;
+  for (const pattern of passwordPatterns) {
+    fixedCode = fixedCode.replace(pattern, (match, selector, value) => {
+      // Defensive null check
+      if (!selector || !value) return match;
+      // Skip if already using process.env
+      if (value.includes('process.env')) {
+        return match;
+      }
+      // Check if value looks like a placeholder
+      const valueLower = value.toLowerCase();
+      if (
+        valueLower.includes('test') ||
+        valueLower.includes('demo') ||
+        valueLower.includes('pass') ||
+        valueLower.includes('secret') ||
+        valueLower.includes('123') ||
+        valueLower.includes('admin')
+      ) {
+        passwordFixCount++;
+        // Log without exposing the actual credential value
+        logger.warn(`Fixed placeholder password in selector ${selector} -> process.env.TEST_PASSWORD!`);
+        return `page.fill(${selector}, process.env.TEST_PASSWORD!)`;
+      }
+      return match;
+    });
+  }
+
+  // Summary log if any fixes were made
+  if (usernameFixCount > 0 || passwordFixCount > 0) {
+    logger.info(`Credential validation: fixed ${usernameFixCount} username(s) and ${passwordFixCount} password(s)`);
+  }
+
+  // Final detection pass to warn about anything we couldn't fix
+  const { hasPlaceholders, issues } = detectPlaceholderCredentials(fixedCode);
+  if (hasPlaceholders) {
+    logger.warn('Some potential placeholder credentials could not be automatically fixed:');
+    for (const issue of issues) {
+      logger.warn(`  - ${issue}`);
+    }
+  }
+
+  return fixedCode;
 }
 
 // ============================================
@@ -489,10 +712,20 @@ ${loginFlow.loginModeToggleSelector ? `- Login mode toggle: ${loginFlow.loginMod
 - Success indicator: ${loginFlow.successIndicator}
 - Success URL: ${loginFlow.successUrl || 'after login redirect'}
 
-**CRITICAL: Credentials MUST use environment variables:**
+## ⚠️ CRITICAL CREDENTIAL RULES - READ CAREFULLY ⚠️
+Credentials MUST use environment variables EXACTLY as shown:
 - Username: process.env.TEST_USER!
 - Password: process.env.TEST_PASSWORD!
-DO NOT use placeholder values like 'testUser' or 'testPass'. Always use the exact expressions above.`
+
+❌ WRONG - NEVER DO THIS:
+  page.fill('input[name="username"]', 'testUser')      // WRONG!
+  page.fill('input[name="password"]', 'testPassword')  // WRONG!
+  page.fill('input[name="email"]', 'test@example.com') // WRONG!
+  page.fill('input[name="password"]', 'password123')   // WRONG!
+
+✅ CORRECT - ALWAYS DO THIS:
+  page.fill('input[name="username"]', process.env.TEST_USER!)
+  page.fill('input[name="password"]', process.env.TEST_PASSWORD!)`
     : ''
 }
 
@@ -503,8 +736,8 @@ DO NOT use placeholder values like 'testUser' or 'testPass'. Always use the exac
 2. For authenticated routes, use beforeEach to handle login:
    - Navigate to login URL
    - If loginModeToggleSelector is provided, click it first to switch to password mode
-   - Fill username with process.env.TEST_USER! (NOT a placeholder string)
-   - Fill password with process.env.TEST_PASSWORD! (NOT a placeholder string)
+   - Fill username: page.fill(selector, process.env.TEST_USER!)
+   - Fill password: page.fill(selector, process.env.TEST_PASSWORD!)
    - Click submit button
    - Wait for success indicator or URL
 3. For logic tests:
@@ -518,7 +751,7 @@ DO NOT use placeholder values like 'testUser' or 'testPass'. Always use the exac
    - Wait for networkidle before screenshots
 5. Use data-testid selectors when mentioned, otherwise use semantic selectors
 6. Handle errors gracefully
-7. **NEVER use literal credential values** - always use process.env.TEST_USER! and process.env.TEST_PASSWORD!
+7. **ABSOLUTELY NO literal credential strings** - use process.env.TEST_USER! and process.env.TEST_PASSWORD!
 
 ## Response Format
 Return ONLY the TypeScript code for the test file, no markdown code blocks or explanation:
