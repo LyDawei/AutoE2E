@@ -6,9 +6,11 @@ import type {
 } from '../ai/types.js';
 import { generateLogicTestsSection, generateLoginBeforeEach } from './logic-templates.js';
 import { routeToScreenshotName } from '../utils/route-helpers.js';
+import { validateAndFixCredentials } from '../ai/prompts.js';
 
 /**
  * Generate a complete Playwright test file
+ * Applies validateAndFixCredentials as a defense-in-depth measure
  */
 export function generateTestFile(
   prNumber: number,
@@ -23,11 +25,14 @@ export function generateTestFile(
   const publicTests = publicRoutes.length > 0 ? generatePublicTests(publicRoutes) : '';
   const authTests = authRoutes.length > 0 ? generateAuthTests(authRoutes, loginFlow) : '';
 
-  return `${imports}
+  const content = `${imports}
 
 test.describe('PR #${prNumber} Visual Regression', () => {
 ${publicTests}${publicTests && authTests ? '\n' : ''}${authTests}});
 `;
+
+  // Defense-in-depth: validate and fix any remaining credential issues
+  return validateAndFixCredentials(content);
 }
 
 /**
@@ -99,6 +104,7 @@ export function generateFallbackTestFile(
 
 /**
  * Generate a unified Playwright test file with both visual and logic tests
+ * Applies validateAndFixCredentials as a defense-in-depth measure
  */
 export function generateUnifiedTestFile(
   prNumber: number,
@@ -130,7 +136,8 @@ test.describe('PR #${prNumber} Tests', () => {
 
   content += '});\n';
 
-  return content;
+  // Defense-in-depth: validate and fix any remaining credential issues
+  return validateAndFixCredentials(content);
 }
 
 /**

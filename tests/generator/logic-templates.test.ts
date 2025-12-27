@@ -15,10 +15,10 @@ describe('generateStepCode', () => {
     expect(code).toBe("await page.goto('/users');");
   });
 
-  it('generates fill step', () => {
-    const step: TestStep = { type: 'fill', target: '#email', value: 'test@example.com', description: 'Enter email' };
+  it('generates fill step with non-credential field', () => {
+    const step: TestStep = { type: 'fill', target: '#name', value: 'John Doe', description: 'Enter name' };
     const code = generateStepCode(step);
-    expect(code).toBe("await page.fill('#email', 'test@example.com');");
+    expect(code).toBe("await page.fill('#name', 'John Doe');");
   });
 
   it('generates click step', () => {
@@ -49,6 +49,96 @@ describe('generateStepCode', () => {
     const step: TestStep = { type: 'upload', target: '#file', value: '/path/to/file.pdf', description: 'Upload file' };
     const code = generateStepCode(step);
     expect(code).toBe("await page.setInputFiles('#file', '/path/to/file.pdf');");
+  });
+});
+
+describe('generateStepCode - credential handling', () => {
+  // Password field tests
+  it('uses process.env.TEST_PASSWORD for input[type="password"]', () => {
+    const step: TestStep = { type: 'fill', target: 'input[type="password"]', value: 'testPassword', description: 'Enter password' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('input[type=\"password\"]', process.env.TEST_PASSWORD!);");
+  });
+
+  it('uses process.env.TEST_PASSWORD for #password selector', () => {
+    const step: TestStep = { type: 'fill', target: '#password', value: 'anyValue', description: 'Enter password' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('#password', process.env.TEST_PASSWORD!);");
+  });
+
+  it('uses process.env.TEST_PASSWORD for input[name="password"]', () => {
+    const step: TestStep = { type: 'fill', target: 'input[name="password"]', value: 'secret123', description: 'Enter password' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('input[name=\"password\"]', process.env.TEST_PASSWORD!);");
+  });
+
+  // Username/email field tests
+  it('uses process.env.TEST_USER for #email with placeholder value', () => {
+    const step: TestStep = { type: 'fill', target: '#email', value: 'test@example.com', description: 'Enter email' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('#email', process.env.TEST_USER!);");
+  });
+
+  it('uses process.env.TEST_USER for input[name="username"] with testUser value', () => {
+    const step: TestStep = { type: 'fill', target: 'input[name="username"]', value: 'testUser', description: 'Enter username' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('input[name=\"username\"]', process.env.TEST_USER!);");
+  });
+
+  it('uses process.env.TEST_USER for input[type="email"] with placeholder', () => {
+    const step: TestStep = { type: 'fill', target: 'input[type="email"]', value: 'user@test.com', description: 'Enter email' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('input[type=\"email\"]', process.env.TEST_USER!);");
+  });
+
+  it('uses process.env.TEST_USER for #password-email (special case)', () => {
+    const step: TestStep = { type: 'fill', target: '#password-email', value: 'admin@example.com', description: 'Enter email' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('#password-email', process.env.TEST_USER!);");
+  });
+
+  // Non-credential fields should preserve literal values
+  it('preserves literal value for non-credential fields like #firstName', () => {
+    const step: TestStep = { type: 'fill', target: '#firstName', value: 'John', description: 'Enter first name' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('#firstName', 'John');");
+  });
+
+  it('preserves literal value for #phone field', () => {
+    const step: TestStep = { type: 'fill', target: '#phone', value: '555-1234', description: 'Enter phone' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('#phone', '555-1234');");
+  });
+
+  it('preserves literal value for search fields', () => {
+    const step: TestStep = { type: 'fill', target: '#search', value: 'test query', description: 'Enter search' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('#search', 'test query');");
+  });
+
+  // Edge cases
+  it('uses process.env.TEST_PASSWORD even for empty values in password fields', () => {
+    const step: TestStep = { type: 'fill', target: '#password', value: '', description: 'Enter password' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('#password', process.env.TEST_PASSWORD!);");
+  });
+
+  it('handles data-testid selectors for password fields', () => {
+    const step: TestStep = { type: 'fill', target: '[data-testid="password-input"]', value: 'mypass', description: 'Enter password' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('[data-testid=\"password-input\"]', process.env.TEST_PASSWORD!);");
+  });
+
+  it('handles data-testid selectors for email fields', () => {
+    const step: TestStep = { type: 'fill', target: '[data-testid="email-input"]', value: 'test@example.com', description: 'Enter email' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('[data-testid=\"email-input\"]', process.env.TEST_USER!);");
+  });
+
+  it('uses TEST_USER for email-like values even in generic fields', () => {
+    const step: TestStep = { type: 'fill', target: '#userEmail', value: 'john@company.com', description: 'Enter email' };
+    const code = generateStepCode(step);
+    expect(code).toBe("await page.fill('#userEmail', process.env.TEST_USER!);");
   });
 });
 
@@ -104,7 +194,7 @@ describe('generateAssertionCode', () => {
 });
 
 describe('generateFormSubmissionTest', () => {
-  it('generates complete form test with steps and assertions', () => {
+  it('generates complete login form test with process.env credentials', () => {
     const details: LogicTestDetails = {
       action: 'submit login form',
       steps: [
@@ -121,10 +211,32 @@ describe('generateFormSubmissionTest', () => {
 
     expect(code).toContain("test('should login successfully'");
     expect(code).toContain("page.goto('/login')");
-    expect(code).toContain("page.fill('#email', 'test@example.com')");
-    expect(code).toContain("page.fill('#password', 'secret')");
+    // Credential fields should use process.env
+    expect(code).toContain("page.fill('#email', process.env.TEST_USER!)");
+    expect(code).toContain("page.fill('#password', process.env.TEST_PASSWORD!)");
     expect(code).toContain("page.click('button[type=\"submit\"]')");
     expect(code).toContain("toHaveURL('/dashboard')");
+  });
+
+  it('generates form test with non-credential fields preserving values', () => {
+    const details: LogicTestDetails = {
+      action: 'submit contact form',
+      steps: [
+        { type: 'fill', target: '#name', value: 'John Doe', description: 'Enter name' },
+        { type: 'fill', target: '#message', value: 'Hello world', description: 'Enter message' },
+        { type: 'click', target: 'button[type="submit"]', description: 'Submit' },
+      ],
+      assertions: [
+        { type: 'visible', target: '.success', expected: 'visible', description: 'Success shown' },
+      ],
+    };
+
+    const code = generateFormSubmissionTest('/contact', details, 'should submit contact form');
+
+    expect(code).toContain("test('should submit contact form'");
+    // Non-credential fields should preserve literal values
+    expect(code).toContain("page.fill('#name', 'John Doe')");
+    expect(code).toContain("page.fill('#message', 'Hello world')");
   });
 
   it('handles empty steps gracefully', () => {
@@ -206,7 +318,44 @@ describe('generateLogicTestsSection', () => {
     expect(result).toContain("test.describe('Functional Tests'");
     expect(result).toContain("test.describe('Public'");
     expect(result).toContain("test('should submit contact form'");
+    // Non-credential field preserves literal value
     expect(result).toContain("page.fill('#name', 'John')");
+  });
+
+  it('generates section with credential fields using process.env', () => {
+    const routes: UnifiedTestRecommendation[] = [
+      {
+        route: '/login',
+        reason: 'Login form changed',
+        priority: 'high',
+        authRequired: false,
+        testTypes: [
+          {
+            category: 'logic',
+            subtype: 'form-submission',
+            details: {
+              action: 'submit login form',
+              steps: [
+                { type: 'fill', target: '#email', value: 'test@example.com', description: 'Enter email' },
+                { type: 'fill', target: '#password', value: 'password123', description: 'Enter password' },
+                { type: 'click', target: 'button', description: 'Submit' },
+              ],
+              assertions: [
+                { type: 'url', target: '', expected: '/dashboard', description: 'Redirect to dashboard' },
+              ],
+            },
+          },
+        ],
+      },
+    ];
+
+    const result = generateLogicTestsSection(routes);
+
+    expect(result).toContain("test.describe('Functional Tests'");
+    expect(result).toContain("test('should submit login form'");
+    // Credential fields should use process.env
+    expect(result).toContain("page.fill('#email', process.env.TEST_USER!)");
+    expect(result).toContain("page.fill('#password', process.env.TEST_PASSWORD!)");
   });
 
   it('generates section with authenticated logic tests', () => {
