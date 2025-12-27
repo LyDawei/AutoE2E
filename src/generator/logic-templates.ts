@@ -16,6 +16,98 @@ function escapeForCode(value: string | undefined): string {
 }
 
 /**
+ * Check if a selector targets a username/email field
+ */
+function isUsernameSelector(selector: string): boolean {
+  const s = selector.toLowerCase();
+
+  // Explicit email patterns
+  if (s.includes('password-email')) return true; // #password-email is email, not password
+  if (s.includes('type="email"') || s.includes("type='email'")) return true;
+  if (s.includes('name="email"') || s.includes("name='email'")) return true;
+  if (s.includes('name="username"') || s.includes("name='username'")) return true;
+  if (s.includes('name="user"') || s.includes("name='user'")) return true;
+  if (s.includes('data-testid') && (s.includes('email') || s.includes('user'))) return true;
+  if (s.includes('placeholder') && (s.includes('@') || s.includes('email'))) return true;
+
+  // ID selectors for username
+  if (/^#(email|username|user|login|password-email)$/i.test(s)) return true;
+  if (s.match(/^#(email|username|user|login)$/i)) return true;
+
+  // General keywords (but not if it's a password field)
+  if ((s.includes('email') || s.includes('user') || s.includes('login')) && !s.match(/#password(?!-email)/)) return true;
+
+  return false;
+}
+
+/**
+ * Check if a selector targets a password field
+ */
+function isPasswordSelector(selector: string): boolean {
+  const s = selector.toLowerCase();
+
+  // Exclude password-email (that's an email field)
+  if (s.includes('password-email')) return false;
+
+  // Explicit password patterns
+  if (s.includes('type="password"') || s.includes("type='password'")) return true;
+  if (s.includes('name="password"') || s.includes("name='password'")) return true;
+  if (s.includes('name="pass"') || s.includes("name='pass'")) return true;
+  if (s.includes('autocomplete="current-password"') || s.includes('autocomplete="new-password"')) return true;
+  if (s.includes('data-testid') && s.includes('password')) return true;
+
+  // ID selectors for password
+  if (/^#(password|pass|pwd)$/i.test(s)) return true;
+
+  // General password keywords (but not password-email)
+  if ((s.includes('password') || s.includes('pass') || s.includes('pwd')) && !s.includes('password-email')) return true;
+
+  return false;
+}
+
+/**
+ * Check if a value looks like a placeholder credential that should be replaced
+ */
+function isPlaceholderCredential(value: string): boolean {
+  const v = value.toLowerCase();
+  return (
+    v.includes('test') ||
+    v.includes('demo') ||
+    v.includes('user') ||
+    v.includes('admin') ||
+    v.includes('@example') ||
+    v.includes('@test') ||
+    v.includes('123') ||
+    v.includes('pass') ||
+    v.includes('secret') ||
+    v === 'test-value' ||
+    // Catch email-like values
+    (v.includes('@') && v.includes('.'))
+  );
+}
+
+/**
+ * Get the appropriate value for a fill step, using process.env for credentials
+ */
+function getCredentialSafeValue(selector: string, value: string | undefined): string {
+  // If it's a password field, ALWAYS use process.env.TEST_PASSWORD! regardless of value
+  if (isPasswordSelector(selector)) {
+    return 'process.env.TEST_PASSWORD!';
+  }
+
+  // If no value is provided (and it's not a password field), return empty string
+  if (!value) return "''";
+
+  // If it's a username/email field and the value looks like a placeholder, use process.env.TEST_USER!
+  if (isUsernameSelector(selector) && isPlaceholderCredential(value)) {
+    return 'process.env.TEST_USER!';
+  }
+
+  // For non-credential fields, return the escaped literal value
+  return `'${escapeForCode(value)}'`;
+}
+
+/**
  * Check if a string is a regex pattern (prefix with "regex:" for explicit regex)
  * This avoids ambiguity with URL paths like "/api/users/"
  */
@@ -45,13 +137,18 @@ function extractRegexPattern(value: string): string {
 
 /**
  * Generate code for a single test step
+ * Automatically uses process.env for credential fields
  */
 export function generateStepCode(step: TestStep): string {
   switch (step.type) {
     case 'navigate':
       return `await page.goto('${escapeForCode(step.value || step.target)}');`;
-    case 'fill':
-      return `await page.fill('${escapeForCode(step.target)}', '${escapeForCode(step.value)}');`;
+    case 'fill': {
+      // Use credential-safe value for fill operations
+      const target = step.target || '';
+      const safeValue = getCredentialSafeValue(target, step.value);
+      return `await page.fill('${escapeForCode(target)}', ${safeValue});`;
+    }
     case 'click':
       return `await page.click('${escapeForCode(step.target)}');`;
     case 'select':
