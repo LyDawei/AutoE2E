@@ -268,12 +268,25 @@ export function generateLoginBeforeEach(
   indent: string = '    '
 ): string {
   if (!loginFlow) {
+    // Fallback login flow with comprehensive selectors that cover common patterns
+    // These selectors use Playwright's multiple selector syntax (comma-separated)
+    // Priority order: id > name > type > placeholder
     return `${indent}test.beforeEach(async ({ page }) => {
 ${indent}  // TODO: Customize login flow for your application
+${indent}  // If your login page has tabs (e.g., "Verification Code" | "Password"), click the Password tab first:
+${indent}  // await page.click('button:has-text("Password")');
+${indent}
 ${indent}  await page.goto('/login');
-${indent}  await page.fill('input[type="email"], input[name="email"], #email', process.env.TEST_USER!);
-${indent}  await page.fill('input[type="password"], input[name="password"], #password', process.env.TEST_PASSWORD!);
-${indent}  await page.click('button[type="submit"]');
+${indent}  await page.waitForLoadState('networkidle');
+${indent}
+${indent}  // Fill email/username - tries multiple common selectors
+${indent}  await page.fill('#password-email, #email, input[name="email"], input[type="email"], input[placeholder*="email"], input[placeholder*="@"]', process.env.TEST_USER!);
+${indent}
+${indent}  // Fill password - tries multiple common selectors
+${indent}  await page.fill('#password, input[name="password"], input[type="password"], input[autocomplete="current-password"]', process.env.TEST_PASSWORD!);
+${indent}
+${indent}  // Click submit button
+${indent}  await page.click('button[type="submit"], button:has-text("Sign in"), button:has-text("Log in")');
 ${indent}  await page.waitForLoadState('networkidle');
 ${indent}});`;
   }
