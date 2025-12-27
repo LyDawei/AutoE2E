@@ -256,3 +256,120 @@ describe('edge cases', () => {
     expect(fixed).toBe(code);
   });
 });
+
+describe('new selector patterns', () => {
+  // Tests for the new patterns added to fix tab-based login forms
+  // like those with #password-email id pattern
+
+  it('fixes #password-email selector (common in tab-based login forms)', () => {
+    const code = `await page.fill('#password-email', 'david.ly@company.com');`;
+    const fixed = validateAndFixCredentials(code);
+    expect(fixed).toBe(`await page.fill('#password-email', process.env.TEST_USER!);`);
+  });
+
+  it('fixes real email addresses in email fields', () => {
+    const code = `await page.fill('input[name="email"]', 'john.doe@example.org');`;
+    const fixed = validateAndFixCredentials(code);
+    expect(fixed).toContain('process.env.TEST_USER!');
+  });
+
+  it('fixes credentials in data-testid selectors', () => {
+    const code = `
+      await page.fill('[data-testid="email-input"]', 'test@test.com');
+      await page.fill('[data-testid="password-input"]', 'mypassword123');
+    `;
+    const fixed = validateAndFixCredentials(code);
+    expect(fixed).toContain('process.env.TEST_USER!');
+    expect(fixed).toContain('process.env.TEST_PASSWORD!');
+  });
+
+  it('fixes credentials with input[autocomplete="current-password"]', () => {
+    const code = `await page.fill('input[autocomplete="current-password"]', 'secretPass123');`;
+    const fixed = validateAndFixCredentials(code);
+    expect(fixed).toContain('process.env.TEST_PASSWORD!');
+  });
+
+  it('handles complete tab-based login flow', () => {
+    // Simulates what the AI might generate for a tab-based login form
+    // Using obvious placeholder values that the validation will catch
+    const code = `
+    test.beforeEach(async ({ page }) => {
+      await page.goto('/login');
+      await page.click('button:has-text("Password")');
+      await page.fill('#password-email', 'david.ly@company.com');
+      await page.fill('#password', 'testPassword123');
+      await page.click('button[type="submit"]');
+    });
+    `;
+    const fixed = validateAndFixCredentials(code);
+    expect(fixed).toContain('process.env.TEST_USER!');
+    expect(fixed).toContain('process.env.TEST_PASSWORD!');
+    expect(fixed).not.toContain("'david.ly@company.com'");
+    expect(fixed).not.toContain("'testPassword123'");
+    // Should preserve the tab click
+    expect(fixed).toContain("await page.click('button:has-text(\"Password\")')");
+  });
+
+  it('detects non-obvious password values in password fields', () => {
+    // Even passwords that don't look like placeholders should be detected
+    // when they're in known password fields
+    const code = `await page.fill('#password', 'XxD4V1DxX');`;
+    const result = detectPlaceholderCredentials(code);
+    // This should be detected as suspicious because it's a literal string in a password field
+    expect(result.hasPlaceholders).toBe(true);
+  });
+
+  it('detects real-looking emails with @ and . in credential fields', () => {
+    const code = `await page.fill('#email', 'jane.smith@acme.co');`;
+    const result = detectPlaceholderCredentials(code);
+    expect(result.hasPlaceholders).toBe(true);
+  });
+
+  it('detects suspicious credentials in type="email" fields', () => {
+    const code = `await page.fill('input[type="email"]', 'user@domain.com');`;
+    const result = detectPlaceholderCredentials(code);
+    expect(result.hasPlaceholders).toBe(true);
+  });
+});
+
+describe('login flow template fallbacks', () => {
+  // These tests verify the logic-templates.ts generates proper fallback code
+  // We import the function to test it directly
+
+  it('generateLoginBeforeEach without loginFlow includes helpful comments', async () => {
+    const { generateLoginBeforeEach } = await import('../../src/generator/logic-templates.js');
+    const result = generateLoginBeforeEach(undefined, '    ');
+
+    // Should include tab-click hint
+    expect(result).toContain('button:has-text("Password")');
+    // Should use comprehensive selector lists
+    expect(result).toContain('#password-email');
+    expect(result).toContain('#email');
+    expect(result).toContain('#password');
+    // Should use process.env
+    expect(result).toContain('process.env.TEST_USER!');
+    expect(result).toContain('process.env.TEST_PASSWORD!');
+  });
+
+  it('generateLoginBeforeEach with loginFlow includes mode toggle click', async () => {
+    const { generateLoginBeforeEach } = await import('../../src/generator/logic-templates.js');
+    const loginFlow = {
+      loginUrl: '/login',
+      usernameSelector: '#password-email',
+      passwordSelector: '#password',
+      submitSelector: 'button[type="submit"]',
+      successIndicator: '[data-testid="dashboard"]',
+      loginModeToggleSelector: 'button:has-text("Password")',
+      loginModeToggleDescription: 'Switch to password login mode',
+    };
+    const result = generateLoginBeforeEach(loginFlow, '    ');
+
+    // Should click the mode toggle before filling credentials
+    expect(result).toContain("await page.click('button:has-text(\"Password\")')");
+    // Should wait for toggle to be visible
+    expect(result).toContain("await page.waitForSelector('button:has-text(\"Password\")')");
+    // Should fill credentials with process.env
+    expect(result).toContain('process.env.TEST_USER!');
+    expect(result).toContain('process.env.TEST_PASSWORD!');
+  });
+});

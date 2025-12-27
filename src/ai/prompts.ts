@@ -81,7 +81,7 @@ Respond with valid JSON only (no markdown, no explanation):
  * Prompt for inferring login flow from codebase
  */
 export function buildLoginFlowPrompt(loginPageContent: string, layoutContent?: string): string {
-  return `Analyze this login page to extract the login flow selectors.
+  return `Analyze this login page to extract the login flow selectors for Playwright automation.
 
 ## Login Page Content
 \`\`\`svelte
@@ -98,36 +98,67 @@ ${layoutContent.slice(0, 4000)}
 }
 
 ## Your Task
-Extract the CSS selectors or data-testid attributes for:
+Extract the CSS selectors or Playwright locators for:
 1. Username/email input field
 2. Password input field
 3. Submit/login button
 4. Success indicator (what element appears after successful login)
 5. Expected URL after successful login
-6. **Login mode toggle** (if the page has multiple login modes like "Verification Code" vs "Password", identify the button/link to switch to password mode)
+6. **Login mode toggle** - CRITICAL: If the page has TABS or BUTTONS to switch between login methods (e.g., "Verification Code" vs "Password", "Email" vs "Phone", "SSO" vs "Password"), you MUST identify the selector to click BEFORE the password form is visible
 
 ## Response Format
 Respond with valid JSON only:
 {
   "loginUrl": "/login",
-  "usernameSelector": "input[name='email']",
-  "passwordSelector": "input[name='password']",
+  "usernameSelector": "#password-email",
+  "passwordSelector": "#password",
   "submitSelector": "button[type='submit']",
   "successIndicator": "[data-testid='dashboard']",
   "successUrl": "/dashboard",
   "loginModeToggleSelector": "button:has-text('Password')",
-  "loginModeToggleDescription": "Switch to password login mode"
+  "loginModeToggleDescription": "Click Password tab to switch from verification code mode"
 }
 
-## Important Notes:
-- If the login page has tabs, toggles, or buttons to switch between login methods (e.g., "Verification Code" / "Password", "Email" / "Phone", "SSO" / "Password"), set loginModeToggleSelector to the selector that switches to PASSWORD mode
-- If no mode toggle exists (direct password login), omit loginModeToggleSelector and loginModeToggleDescription
-- Prefer data-testid attributes when available, then id, then name, then type-based selectors
+## CRITICAL Rules for Login Mode Detection:
 
-If you cannot determine a selector with confidence, use a reasonable default like:
-- Username: input[type='email'], input[name='email'], #email
-- Password: input[type='password'], input[name='password'], #password
-- Submit: button[type='submit'], form button, .login-button`;
+### Detecting Tab/Toggle Login Modes
+Many modern login pages have MULTIPLE login methods in tabs or toggle buttons:
+- "Verification Code" | "Password" tabs
+- "Email" | "Phone" tabs
+- "SSO" | "Password" options
+
+**If you see ANY of these patterns, loginModeToggleSelector is REQUIRED:**
+- Multiple \`<button>\` elements with text like "Password", "Verification Code", "Email", "Phone"
+- Tab-like UI with different login modes
+- Toggle buttons to switch authentication methods
+- Buttons that show/hide different form sections
+
+### Selector Priority (use in this order):
+1. \`data-testid\` attributes: \`[data-testid='password-tab']\`
+2. \`id\` attributes: \`#password-email\`, \`#password\`
+3. Playwright text selectors for buttons without IDs: \`button:has-text('Password')\`
+4. \`name\` attributes: \`input[name='email']\`
+5. \`type\` + \`placeholder\` combination: \`input[type='email'][placeholder='your@email.com']\`
+6. \`type\` alone: \`input[type='password']\`
+
+### For Tab/Toggle Buttons Without IDs:
+Use Playwright's text-based selectors:
+- \`button:has-text('Password')\` - button containing "Password" text
+- \`text=Password\` - exact text match
+- \`:has-text('Sign in with')\` - partial text match
+
+### Common Patterns to Look For:
+- Form with \`action="?/passwordLogin"\` indicates password-based login
+- Tabs with "Verification Code" and "Password" text
+- \`id="password-email"\` for email field in password login mode
+- \`id="password"\` for password field
+- Multiple \`<button type="button">\` elements = likely login mode tabs
+
+## Important Notes:
+- ALWAYS check if password fields are inside a conditional/hidden section that requires clicking a tab first
+- If the form has \`action="?/passwordLogin"\` or similar, there's likely a "Password" tab to click
+- If no mode toggle exists (direct password login with no tabs), omit loginModeToggleSelector
+- Test selectors should work with Playwright's page.click() and page.fill() methods`;
 }
 
 /**
@@ -170,18 +201,22 @@ ${loginFlow.loginModeToggleSelector ? `- Login mode toggle: ${loginFlow.loginMod
 
 ## ⚠️ CRITICAL CREDENTIAL RULES - READ CAREFULLY ⚠️
 Credentials MUST use environment variables EXACTLY as shown:
-- Username: process.env.TEST_USER!
+- Username/Email: process.env.TEST_USER!
 - Password: process.env.TEST_PASSWORD!
 
-❌ WRONG - NEVER DO THIS:
+❌ WRONG - NEVER DO THIS (any literal string is WRONG):
+  page.fill('#password-email', 'david.ly@company.com') // WRONG - real email!
+  page.fill('#password', 'MyP@ssw0rd!')                // WRONG - real password!
   page.fill('input[name="username"]', 'testUser')      // WRONG!
   page.fill('input[name="password"]', 'testPassword')  // WRONG!
   page.fill('input[name="email"]', 'test@example.com') // WRONG!
   page.fill('input[name="password"]', 'password123')   // WRONG!
 
-✅ CORRECT - ALWAYS DO THIS:
-  page.fill('input[name="username"]', process.env.TEST_USER!)
-  page.fill('input[name="password"]', process.env.TEST_PASSWORD!)`
+✅ CORRECT - ALWAYS DO THIS (always use process.env):
+  page.fill('#password-email', process.env.TEST_USER!)
+  page.fill('#password', process.env.TEST_PASSWORD!)
+  page.fill('input[name="email"]', process.env.TEST_USER!)
+  page.fill('input[type="password"]', process.env.TEST_PASSWORD!)`
     : ''
 }
 
@@ -338,42 +373,78 @@ const PLACEHOLDER_CREDENTIAL_PATTERNS = [
 ];
 
 /**
+ * Helper function to check if a selector is for a credential field (username or password)
+ */
+function isCredentialSelector(selector: string): boolean {
+  // Remove outer quotes for analysis
+  const s = selector.toLowerCase().replace(/^['"`]|['"`]$/g, '');
+
+  // Check for username patterns
+  if (s.includes('user') || s.includes('email') || s.includes('login') ||
+      s.includes('credential') || s.includes('auth')) {
+    return true;
+  }
+
+  // Check for password patterns (but password-email is username, not password)
+  if ((s.includes('password') || s.includes('pass') || s.includes('pwd')) && !s.includes('password-email')) {
+    return true;
+  }
+
+  // Handle #password-email as a credential field (it's a username field)
+  if (s.includes('password-email')) {
+    return true;
+  }
+
+  // Check for type="email" or type="password"
+  if (s.includes('type="email"') || s.includes("type='email'") ||
+      s.includes('type="password"') || s.includes("type='password'")) {
+    return true;
+  }
+
+  // Check for autocomplete attributes
+  if (s.includes('autocomplete')) {
+    return true;
+  }
+
+  // Check for placeholder with email indicators
+  if (s.includes('placeholder') && (s.includes('@') || s.includes('email'))) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Detects if code contains placeholder credentials in page.fill() calls
  */
 export function detectPlaceholderCredentials(code: string): { hasPlaceholders: boolean; issues: string[] } {
   const issues: string[] = [];
 
   // Find all page.fill() calls
-  const fillCalls = code.matchAll(/page\.fill\s*\(\s*(['"`][^'"`]+['"`])\s*,\s*(['"`][^'"`]+['"`]|[^)]+)\s*\)/g);
+  // The pattern handles selectors that may contain nested quotes (e.g., 'input[name="email"]')
+  const fillCalls = code.matchAll(/page\.fill\s*\(\s*('[^']*'|"[^"]*"|`[^`]*`)\s*,\s*('[^']*'|"[^"]*"|`[^`]*`|[^)]+)\s*\)/g);
 
   for (const match of fillCalls) {
-    const selector = match[1].toLowerCase();
+    const selector = match[1];
     const value = match[2];
 
-    // Check if this looks like a credential field (includes data-testid patterns)
-    const isCredentialField =
-      selector.includes('user') ||
-      selector.includes('email') ||
-      selector.includes('password') ||
-      selector.includes('pass') ||
-      selector.includes('login') ||
-      selector.includes('credential') ||
-      selector.includes('auth');
-
-    if (isCredentialField) {
+    // Check if this looks like a credential field using our helper function
+    if (isCredentialSelector(selector)) {
       // Check if the value is a literal string (not process.env)
       if (!value.includes('process.env')) {
+        // Check for known placeholder patterns first
         for (const pattern of PLACEHOLDER_CREDENTIAL_PATTERNS) {
           if (pattern.test(value)) {
             issues.push(`Found placeholder credential: ${value} in fill(${match[1]}, ...)`);
             break;
           }
         }
+
         // Also check for any quoted string value that's not a process.env reference
         if (value.match(/^['"`][^'"`]+['"`]$/) && !value.includes('process.env')) {
           const valueContent = value.slice(1, -1).toLowerCase();
           // Common patterns that suggest test credentials
-          if (
+          const hasCommonPattern =
             valueContent.includes('test') ||
             valueContent.includes('demo') ||
             valueContent.includes('123') ||
@@ -381,8 +452,14 @@ export function detectPlaceholderCredentials(code: string): { hasPlaceholders: b
             valueContent.includes('admin') ||
             valueContent.includes('user') ||
             valueContent.includes('@example') ||
-            valueContent.includes('@test')
-          ) {
+            valueContent.includes('@test') ||
+            // Also catch real-looking emails that aren't from env
+            (valueContent.includes('@') && valueContent.includes('.'));
+
+          // For password fields, ANY literal string should be flagged
+          const isPasswordField = isPasswordSelector(selector);
+
+          if (hasCommonPattern || isPasswordField) {
             if (!issues.some((i) => i.includes(value))) {
               issues.push(`Suspicious credential value: ${value} in fill(${match[1]}, ...) - should use process.env`);
             }
@@ -412,6 +489,57 @@ export function detectPlaceholderCredentials(code: string): { hasPlaceholders: b
  * - Does not detect template literals or string concatenation
  * - Only scans page.fill() calls, not page.type() or other methods
  */
+/**
+ * Helper function to determine if a selector is for a username/email field
+ * This function handles tricky cases like #password-email which is an email field
+ */
+function isUsernameSelector(selector: string): boolean {
+  // Remove outer quotes for analysis
+  const s = selector.toLowerCase().replace(/^['"`]|['"`]$/g, '');
+
+  // Explicit email patterns - these are always username fields
+  if (s.includes('password-email')) return true; // #password-email is email, not password
+  if (s.includes('type="email"') || s.includes("type='email'")) return true;
+  if (s.includes('name="email"') || s.includes("name='email'")) return true;
+  if (s.includes('name="username"') || s.includes("name='username'")) return true;
+  if (s.includes('name="user"') || s.includes("name='user'")) return true;
+  if (s.includes('data-testid') && (s.includes('email') || s.includes('user'))) return true;
+  if (s.includes('placeholder') && (s.includes('@') || s.includes('email'))) return true;
+
+  // ID selectors for username - #email, #username, etc
+  if (/^#(email|username|user|login|password-email)$/i.test(s)) return true;
+
+  // General keywords for username (but not if it's clearly a password field)
+  if ((s.includes('email') || s.includes('user') || s.includes('login')) && !s.match(/#password(?!-email)/)) return true;
+
+  return false;
+}
+
+/**
+ * Helper function to determine if a selector is for a password field
+ * Excludes selectors like #password-email which are email fields
+ */
+function isPasswordSelector(selector: string): boolean {
+  // Remove outer quotes for analysis
+  const s = selector.toLowerCase().replace(/^['"`]|['"`]$/g, '');
+
+  // Explicit password patterns
+  if (s.includes('password-email')) return false; // This is email, not password!
+  if (s.includes('type="password"') || s.includes("type='password'")) return true;
+  if (s.includes('name="password"') || s.includes("name='password'")) return true;
+  if (s.includes('name="pass"') || s.includes("name='pass'")) return true;
+  if (s.includes('autocomplete="current-password"') || s.includes('autocomplete="new-password"')) return true;
+  if (s.includes('data-testid') && s.includes('password')) return true;
+
+  // ID selectors for password - #password but NOT #password-email
+  if (/^#(password|pass|pwd)$/i.test(s)) return true;
+
+  // General password keywords (but not password-email)
+  if ((s.includes('password') || s.includes('pass') || s.includes('pwd')) && !s.includes('password-email')) return true;
+
+  return false;
+}
+
 export function validateAndFixCredentials(code: string): string {
   // Defensive input validation
   if (!code || typeof code !== 'string') {
@@ -420,82 +548,63 @@ export function validateAndFixCredentials(code: string): string {
 
   let fixedCode = code;
 
-  // Find and fix username/email fill calls with placeholder values
-  const usernamePatterns = [
-    /page\.fill\s*\(\s*(['"`][^'"`]*(?:user|email|login)[^'"`]*['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
-    /page\.fill\s*\(\s*(['"`]input\[(?:name|type)=['""]?(?:user|email|username)['""]?\]['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
-    /page\.fill\s*\(\s*(['"`]#(?:user|email|username|login)[^'"`]*['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
-  ];
+  // Track what we've already fixed to avoid double-fixing
+  const fixedSelectors = new Set<string>();
 
-  // Find and fix password fill calls with placeholder values
-  const passwordPatterns = [
-    /page\.fill\s*\(\s*(['"`][^'"`]*(?:password|pass|pwd)[^'"`]*['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
-    /page\.fill\s*\(\s*(['"`]input\[(?:name|type)=['""]?(?:password|pass)['""]?\]['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
-    /page\.fill\s*\(\s*(['"`]#(?:password|pass|pwd)[^'"`]*['"`])\s*,\s*(['"`][^'"`]+['"`])\s*\)/gi,
-  ];
+  // Find all page.fill() calls and categorize them
+  // The pattern handles selectors that may contain nested quotes (e.g., 'input[name="email"]')
+  // by matching each quote type separately: single quotes, double quotes, or backticks
+  const fillCallPattern = /page\.fill\s*\(\s*('[^']*'|"[^"]*"|`[^`]*`)\s*,\s*('[^']*'|"[^"]*"|`[^`]*`|[^)]+)\s*\)/g;
 
-  // Replace username placeholders
-  let usernameFixCount = 0;
-  for (const pattern of usernamePatterns) {
-    fixedCode = fixedCode.replace(pattern, (match, selector, value) => {
-      // Defensive null check
-      if (!selector || !value) return match;
-      // Skip if already using process.env
-      if (value.includes('process.env')) {
-        return match;
+  fixedCode = fixedCode.replace(fillCallPattern, (match, selector, value) => {
+    // Skip if already using process.env
+    if (value.includes('process.env')) {
+      return match;
+    }
+
+    // Check if this is a password field - if so, ANY literal value should be replaced
+    if (isPasswordSelector(selector)) {
+      if (!fixedSelectors.has(selector)) {
+        logger.warn(`Fixed placeholder password in selector ${selector} -> process.env.TEST_PASSWORD!`);
+        fixedSelectors.add(selector);
       }
-      // Check if value looks like a placeholder
+      return `page.fill(${selector}, process.env.TEST_PASSWORD!)`;
+    }
+
+    // Check if this is a username field
+    if (isUsernameSelector(selector)) {
+      // Check if value looks like a placeholder credential
       const valueLower = value.toLowerCase();
-      if (
+      const isPlaceholder =
         valueLower.includes('test') ||
         valueLower.includes('demo') ||
         valueLower.includes('user') ||
         valueLower.includes('admin') ||
         valueLower.includes('@example') ||
         valueLower.includes('@test') ||
-        valueLower.includes('123')
-      ) {
-        usernameFixCount++;
-        // Log without exposing the actual credential value
-        logger.warn(`Fixed placeholder username in selector ${selector} -> process.env.TEST_USER!`);
-        return `page.fill(${selector}, process.env.TEST_USER!)`;
-      }
-      return match;
-    });
-  }
-
-  // Replace password placeholders
-  let passwordFixCount = 0;
-  for (const pattern of passwordPatterns) {
-    fixedCode = fixedCode.replace(pattern, (match, selector, value) => {
-      // Defensive null check
-      if (!selector || !value) return match;
-      // Skip if already using process.env
-      if (value.includes('process.env')) {
-        return match;
-      }
-      // Check if value looks like a placeholder
-      const valueLower = value.toLowerCase();
-      if (
-        valueLower.includes('test') ||
-        valueLower.includes('demo') ||
+        valueLower.includes('123') ||
         valueLower.includes('pass') ||
         valueLower.includes('secret') ||
-        valueLower.includes('123') ||
-        valueLower.includes('admin')
-      ) {
-        passwordFixCount++;
-        // Log without exposing the actual credential value
-        logger.warn(`Fixed placeholder password in selector ${selector} -> process.env.TEST_PASSWORD!`);
-        return `page.fill(${selector}, process.env.TEST_PASSWORD!)`;
-      }
-      return match;
-    });
-  }
+        // Also catch real-looking emails
+        (valueLower.includes('@') && valueLower.includes('.'));
 
-  // Summary log if any fixes were made
-  if (usernameFixCount > 0 || passwordFixCount > 0) {
-    logger.info(`Credential validation: fixed ${usernameFixCount} username(s) and ${passwordFixCount} password(s)`);
+      if (isPlaceholder) {
+        if (!fixedSelectors.has(selector)) {
+          logger.warn(`Fixed placeholder username in selector ${selector} -> process.env.TEST_USER!`);
+          fixedSelectors.add(selector);
+        }
+        return `page.fill(${selector}, process.env.TEST_USER!)`;
+      }
+    }
+
+    return match;
+  });
+
+  // Log summary if fixes were made
+  if (fixedSelectors.size > 0) {
+    const usernameCount = Array.from(fixedSelectors).filter(s => isUsernameSelector(s)).length;
+    const passwordCount = fixedSelectors.size - usernameCount;
+    logger.info(`Credential validation: fixed ${usernameCount} username(s) and ${passwordCount} password(s)`);
   }
 
   // Final detection pass to warn about anything we couldn't fix
@@ -714,18 +823,22 @@ ${loginFlow.loginModeToggleSelector ? `- Login mode toggle: ${loginFlow.loginMod
 
 ## ⚠️ CRITICAL CREDENTIAL RULES - READ CAREFULLY ⚠️
 Credentials MUST use environment variables EXACTLY as shown:
-- Username: process.env.TEST_USER!
+- Username/Email: process.env.TEST_USER!
 - Password: process.env.TEST_PASSWORD!
 
-❌ WRONG - NEVER DO THIS:
+❌ WRONG - NEVER DO THIS (any literal string is WRONG):
+  page.fill('#password-email', 'david.ly@company.com') // WRONG - real email!
+  page.fill('#password', 'MyP@ssw0rd!')                // WRONG - real password!
   page.fill('input[name="username"]', 'testUser')      // WRONG!
   page.fill('input[name="password"]', 'testPassword')  // WRONG!
   page.fill('input[name="email"]', 'test@example.com') // WRONG!
   page.fill('input[name="password"]', 'password123')   // WRONG!
 
-✅ CORRECT - ALWAYS DO THIS:
-  page.fill('input[name="username"]', process.env.TEST_USER!)
-  page.fill('input[name="password"]', process.env.TEST_PASSWORD!)`
+✅ CORRECT - ALWAYS DO THIS (always use process.env):
+  page.fill('#password-email', process.env.TEST_USER!)
+  page.fill('#password', process.env.TEST_PASSWORD!)
+  page.fill('input[name="email"]', process.env.TEST_USER!)
+  page.fill('input[type="password"]', process.env.TEST_PASSWORD!)`
     : ''
 }
 
