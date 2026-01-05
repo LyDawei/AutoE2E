@@ -22,6 +22,7 @@ import {
   buildUnifiedTestGenerationPrompt,
   parseAIResponse,
   extractCodeFromResponse,
+  enhanceLoginFlowWithTabDetection,
 } from './prompts.js';
 
 export interface OpenAIClientConfig {
@@ -132,12 +133,25 @@ Be conservative - it's better to test more routes than miss a visual regression.
     const systemPrompt = `You are an expert at analyzing web application login forms.
 You extract CSS selectors and data-testid attributes for automation.
 Always respond with valid JSON.
-Prefer data-testid attributes when available, then id, then name, then type-based selectors.`;
+Prefer data-testid attributes when available, then id, then name, then type-based selectors.
+CRITICAL: You MUST detect if the login page has tabs or buttons to switch between login modes (e.g., "Password" vs "Verification Code").`;
 
     const userPrompt = buildLoginFlowPrompt(loginPageContent, layoutContent);
 
     const response = await this.complete(systemPrompt, userPrompt, 'json');
-    return parseAIResponse<LoginFlowAnalysis>(response);
+    const loginFlow = parseAIResponse<LoginFlowAnalysis>(response);
+
+    // Apply heuristic enhancement to catch tabs that AI might have missed
+    // This is a defense-in-depth approach - the prompt already asks for tabs,
+    // but we also scan the HTML content for common patterns as a fallback
+    const enhancedLoginFlow = enhanceLoginFlowWithTabDetection(loginFlow, loginPageContent);
+
+    // Log if enhancement changed anything
+    if (enhancedLoginFlow.loginModeToggleSelector && !loginFlow.loginModeToggleSelector) {
+      logger.warn('Heuristic detection added login mode toggle that AI missed');
+    }
+
+    return enhancedLoginFlow;
   }
 
   /**

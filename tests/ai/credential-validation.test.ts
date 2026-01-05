@@ -3,6 +3,9 @@ import {
   detectPlaceholderCredentials,
   validateAndFixCredentials,
   extractCodeFromResponse,
+  detectLoginTabsFromHTML,
+  enhanceLoginFlowWithTabDetection,
+  detectForbiddenAuthPatterns,
 } from '../../src/ai/prompts.js';
 
 describe('detectPlaceholderCredentials', () => {
@@ -371,5 +374,270 @@ describe('login flow template fallbacks', () => {
     // Should fill credentials with process.env
     expect(result).toContain('process.env.TEST_USER!');
     expect(result).toContain('process.env.TEST_PASSWORD!');
+  });
+});
+
+describe('detectLoginTabsFromHTML - Heuristic Tab Detection', () => {
+  // These tests verify the heuristic detection catches tabs that AI might miss
+
+  it('detects action="?/passwordLogin" pattern', () => {
+    const html = `
+      <form action="?/passwordLogin" method="post">
+        <input id="password-email" type="email" />
+        <input id="password" type="password" />
+        <button type="submit">Sign In</button>
+      </form>
+    `;
+    const result = detectLoginTabsFromHTML(html);
+    expect(result.hasLoginTabs).toBe(true);
+    expect(result.suggestedSelector).toBe("button:has-text('Password')");
+    expect(result.detectedPattern).toContain('passwordLogin');
+  });
+
+  it('detects {#if mode === "password"} Svelte conditional', () => {
+    const html = `
+      <button on:click={() => mode = 'verification'}>Verification Code</button>
+      <button on:click={() => mode = 'password'}>Password</button>
+      {#if mode === 'password'}
+        <form action="?/passwordLogin">
+          <input id="password-email" />
+          <input id="password" />
+        </form>
+      {/if}
+    `;
+    const result = detectLoginTabsFromHTML(html);
+    expect(result.hasLoginTabs).toBe(true);
+    expect(result.suggestedSelector).toBeDefined();
+  });
+
+  it('detects button elements with Password text', () => {
+    const html = `
+      <div class="tabs">
+        <button type="button">Verification Code</button>
+        <button type="button">Password</button>
+      </div>
+      <form>
+        <input type="email" />
+        <input type="password" />
+      </form>
+    `;
+    const result = detectLoginTabsFromHTML(html);
+    expect(result.hasLoginTabs).toBe(true);
+    expect(result.suggestedSelector).toBe("button:has-text('Password')");
+  });
+
+  it('detects role="tablist" pattern', () => {
+    const html = `
+      <div role="tablist">
+        <button role="tab">Email</button>
+        <button role="tab">Password</button>
+      </div>
+    `;
+    const result = detectLoginTabsFromHTML(html);
+    expect(result.hasLoginTabs).toBe(true);
+  });
+
+  it('detects "Verification Code" and "Password" text patterns', () => {
+    const html = `
+      <div class="login-options">
+        <span>Verification Code</span>
+        <span>Password</span>
+      </div>
+    `;
+    const result = detectLoginTabsFromHTML(html);
+    expect(result.hasLoginTabs).toBe(true);
+  });
+
+  it('returns false for simple login form without tabs', () => {
+    const html = `
+      <form action="/login" method="post">
+        <input name="email" type="email" />
+        <input name="password" type="password" />
+        <button type="submit">Sign In</button>
+      </form>
+    `;
+    const result = detectLoginTabsFromHTML(html);
+    expect(result.hasLoginTabs).toBe(false);
+    expect(result.suggestedSelector).toBeNull();
+  });
+
+  it('finds data-testid for password tab if available', () => {
+    const html = `
+      <div class="tabs">
+        <button data-testid="verification-tab">Verification Code</button>
+        <button data-testid="password-tab">Password</button>
+      </div>
+      <form action="?/passwordLogin">
+        <input id="password-email" />
+      </form>
+    `;
+    const result = detectLoginTabsFromHTML(html);
+    expect(result.hasLoginTabs).toBe(true);
+    expect(result.suggestedSelector).toBe("[data-testid='password-tab']");
+  });
+
+  it('finds button id if available', () => {
+    const html = `
+      <button type="button" id="pwd-btn">Password</button>
+      <form action="?/passwordLogin">
+        <input id="password-email" />
+      </form>
+    `;
+    const result = detectLoginTabsFromHTML(html);
+    expect(result.hasLoginTabs).toBe(true);
+    expect(result.suggestedSelector).toBe('#pwd-btn');
+  });
+});
+
+describe('enhanceLoginFlowWithTabDetection', () => {
+  // These tests verify that the enhancement function properly adds toggle selectors
+
+  const baseLoginFlow = {
+    loginUrl: '/login',
+    usernameSelector: '#password-email',
+    passwordSelector: '#password',
+    submitSelector: 'button[type="submit"]',
+    successIndicator: '[data-testid="dashboard"]',
+  };
+
+  it('preserves existing loginModeToggleSelector from AI', () => {
+    const loginFlow = {
+      ...baseLoginFlow,
+      loginModeToggleSelector: 'button.custom-tab',
+      loginModeToggleDescription: 'AI detected tab',
+    };
+    const html = '<form action="?/passwordLogin"></form>';
+
+    const result = enhanceLoginFlowWithTabDetection(loginFlow, html);
+
+    // Should NOT override the AI's selector
+    expect(result.loginModeToggleSelector).toBe('button.custom-tab');
+    expect(result.loginModeToggleDescription).toBe('AI detected tab');
+  });
+
+  it('adds toggle selector when AI missed it but HTML has tabs', () => {
+    const html = `
+      <button type="button">Password</button>
+      <form action="?/passwordLogin">
+        <input id="password-email" />
+        <input id="password" />
+      </form>
+    `;
+
+    const result = enhanceLoginFlowWithTabDetection(baseLoginFlow, html);
+
+    expect(result.loginModeToggleSelector).toBe("button:has-text('Password')");
+    expect(result.loginModeToggleDescription).toContain('heuristics');
+  });
+
+  it('does not add toggle selector for simple login forms', () => {
+    const html = `
+      <form action="/api/login" method="post">
+        <input name="email" />
+        <input name="password" />
+        <button type="submit">Login</button>
+      </form>
+    `;
+
+    const result = enhanceLoginFlowWithTabDetection(baseLoginFlow, html);
+
+    expect(result.loginModeToggleSelector).toBeUndefined();
+  });
+
+  it('uses data-testid selector when found in HTML', () => {
+    const html = `
+      <button data-testid="password-tab" type="button">Password</button>
+      <form action="?/passwordLogin">
+        <input id="password-email" />
+      </form>
+    `;
+
+    const result = enhanceLoginFlowWithTabDetection(baseLoginFlow, html);
+
+    expect(result.loginModeToggleSelector).toBe("[data-testid='password-tab']");
+  });
+
+  it('handles Svelte conditional rendering patterns', () => {
+    const html = `
+      <script>
+        let mode = 'verification';
+      </script>
+      <button on:click={() => mode = 'password'}>Password</button>
+      {#if mode === 'password'}
+        <form action="?/passwordLogin">
+          <input id="password-email" type="email" />
+          <input id="password" type="password" />
+        </form>
+      {/if}
+    `;
+
+    const result = enhanceLoginFlowWithTabDetection(baseLoginFlow, html);
+
+    expect(result.loginModeToggleSelector).toBeDefined();
+    expect(result.hasLoginTabs !== undefined || result.loginModeToggleSelector !== undefined).toBe(true);
+  });
+});
+
+describe('detectForbiddenAuthPatterns', () => {
+  // These tests verify that forbidden auth patterns are detected
+
+  it('detects test.use({ storageState }) pattern', () => {
+    const code = `
+      test.describe('Authenticated Routes', () => {
+        test.use({ storageState: 'auth.json' });
+
+        test('should access dashboard', async ({ page }) => {
+          await page.goto('/dashboard');
+        });
+      });
+    `;
+    const result = detectForbiddenAuthPatterns(code);
+    expect(result.hasForbiddenPatterns).toBe(true);
+    expect(result.issues.length).toBeGreaterThan(0);
+    expect(result.issues[0]).toContain('storageState');
+  });
+
+  it('detects auth.json references', () => {
+    const code = `
+      // Assuming auth.json contains the login state
+      const authFile = 'auth.json';
+    `;
+    const result = detectForbiddenAuthPatterns(code);
+    expect(result.hasForbiddenPatterns).toBe(true);
+    expect(result.issues.some(i => i.includes('auth.json'))).toBe(true);
+  });
+
+  it('does not flag code without forbidden patterns', () => {
+    const code = `
+      test.describe('Authenticated Pages', () => {
+        test.beforeEach(async ({ page }) => {
+          await page.goto('/login');
+          await page.fill('#email', process.env.TEST_USER!);
+          await page.fill('#password', process.env.TEST_PASSWORD!);
+          await page.click('button[type="submit"]');
+        });
+
+        test('should access dashboard', async ({ page }) => {
+          await page.goto('/dashboard');
+        });
+      });
+    `;
+    const result = detectForbiddenAuthPatterns(code);
+    expect(result.hasForbiddenPatterns).toBe(false);
+    expect(result.issues.length).toBe(0);
+  });
+
+  it('does not flag storageState in comments as forbidden', () => {
+    // The function checks for actual usage, not comments about alternatives
+    const code = `
+      // Note: We don't use storageState because there's no auth.json
+      test.beforeEach(async ({ page }) => {
+        await page.goto('/login');
+      });
+    `;
+    const result = detectForbiddenAuthPatterns(code);
+    // Comments mentioning storageState but not using it should not trigger
+    // (but mentions of auth.json will still be flagged)
+    expect(result.issues.some(i => i.includes('test.use({ storageState'))).toBe(false);
   });
 });
