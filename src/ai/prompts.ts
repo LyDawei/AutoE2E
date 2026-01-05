@@ -104,10 +104,25 @@ Extract the CSS selectors or Playwright locators for:
 3. Submit/login button
 4. Success indicator (what element appears after successful login)
 5. Expected URL after successful login
-6. **Login mode toggle** - CRITICAL: If the page has TABS or BUTTONS to switch between login methods (e.g., "Verification Code" vs "Password", "Email" vs "Phone", "SSO" vs "Password"), you MUST identify the selector to click BEFORE the password form is visible
+6. **Login mode toggle** - SEE CRITICAL SECTION BELOW
 
-## Response Format
-Respond with valid JSON only:
+## STEP 1: BEFORE ANYTHING ELSE - CHECK FOR LOGIN TABS!
+
+**STOP AND LOOK CAREFULLY:** Does this login page have TABS or BUTTONS to switch login modes?
+
+Look for these EXACT patterns in the HTML:
+- \`<button\` elements with text: "Password", "Verification", "Code", "Email", "Phone", "SSO"
+- Multiple \`<button type="button">\` that are NOT the submit button
+- \`action="?/passwordLogin"\` - this means there IS a password tab!
+- Form sections wrapped in \`{#if mode === 'password'}\` or similar conditionals
+- Tab-like structures with \`role="tab"\` or \`role="tablist"\`
+- Buttons that show/hide different form sections
+
+**IF ANY OF THESE EXIST:** You MUST set loginModeToggleSelector to the button that reveals the password form!
+**IF NONE EXIST:** Set loginModeToggleSelector to null (not omit it - set it to null!)
+
+## Response Format - ALL FIELDS ARE REQUIRED
+Respond with valid JSON only. ALL fields must be present:
 {
   "loginUrl": "/login",
   "usernameSelector": "#password-email",
@@ -119,46 +134,46 @@ Respond with valid JSON only:
   "loginModeToggleDescription": "Click Password tab to switch from verification code mode"
 }
 
-## CRITICAL Rules for Login Mode Detection:
+## CRITICAL: loginModeToggleSelector Rules
 
-### Detecting Tab/Toggle Login Modes
-Many modern login pages have MULTIPLE login methods in tabs or toggle buttons:
-- "Verification Code" | "Password" tabs
-- "Email" | "Phone" tabs
-- "SSO" | "Password" options
+This field tells us which button to click BEFORE we can fill in credentials.
 
-**If you see ANY of these patterns, loginModeToggleSelector is REQUIRED:**
-- Multiple \`<button>\` elements with text like "Password", "Verification Code", "Email", "Phone"
-- Tab-like UI with different login modes
-- Toggle buttons to switch authentication methods
-- Buttons that show/hide different form sections
+### When to set loginModeToggleSelector:
+✅ Set it if you see: buttons with text like "Password" / "Verification Code"
+✅ Set it if you see: \`action="?/passwordLogin"\` (password form has a tab!)
+✅ Set it if you see: conditional rendering \`{#if mode ===\` around forms
+✅ Set it if you see: multiple \`<button type="button">\` in the login form
+✅ Set it if you see: tab-like UI patterns
 
-### Selector Priority (use in this order):
+### Example selectors to use:
+- \`button:has-text('Password')\` - button containing "Password" text
+- \`button:has-text('Sign in with password')\` - longer text match
+- \`[data-testid='password-tab']\` - data-testid if available
+- \`button[type="button"]:has-text('Password')\` - more specific
+
+### When to set loginModeToggleSelector to null:
+❌ Set to null ONLY if: There's ONE direct login form with no mode switching
+❌ Set to null ONLY if: Password field is immediately visible without clicking anything
+
+## Selector Priority (use in this order):
 1. \`data-testid\` attributes: \`[data-testid='password-tab']\`
 2. \`id\` attributes: \`#password-email\`, \`#password\`
-3. Playwright text selectors for buttons without IDs: \`button:has-text('Password')\`
+3. Playwright text selectors: \`button:has-text('Password')\`
 4. \`name\` attributes: \`input[name='email']\`
-5. \`type\` + \`placeholder\` combination: \`input[type='email'][placeholder='your@email.com']\`
+5. \`type\` + \`placeholder\`: \`input[type='email'][placeholder='your@email.com']\`
 6. \`type\` alone: \`input[type='password']\`
 
-### For Tab/Toggle Buttons Without IDs:
-Use Playwright's text-based selectors:
-- \`button:has-text('Password')\` - button containing "Password" text
-- \`text=Password\` - exact text match
-- \`:has-text('Sign in with')\` - partial text match
+## COMMON MISTAKE TO AVOID:
+If the code shows \`action="?/passwordLogin"\`, there's a password-specific login form.
+This ALWAYS means there's a tab/button to switch to password mode.
+Look for buttons with text like "Password" or "Sign in with password".
+DO NOT leave loginModeToggleSelector as null in this case!
 
-### Common Patterns to Look For:
-- Form with \`action="?/passwordLogin"\` indicates password-based login
-- Tabs with "Verification Code" and "Password" text
-- \`id="password-email"\` for email field in password login mode
-- \`id="password"\` for password field
-- Multiple \`<button type="button">\` elements = likely login mode tabs
-
-## Important Notes:
-- ALWAYS check if password fields are inside a conditional/hidden section that requires clicking a tab first
-- If the form has \`action="?/passwordLogin"\` or similar, there's likely a "Password" tab to click
-- If no mode toggle exists (direct password login with no tabs), omit loginModeToggleSelector
-- Test selectors should work with Playwright's page.click() and page.fill() methods`;
+## Final Checklist Before Responding:
+□ Did I check for tab/toggle buttons?
+□ Did I look for action="?/passwordLogin" pattern?
+□ Did I set loginModeToggleSelector (to a selector OR null)?
+□ Are ALL required fields present in my response?`;
 }
 
 /**
@@ -234,6 +249,33 @@ Credentials MUST use environment variables EXACTLY as shown:
 5. Handle errors gracefully
 6. Use maxDiffPixels: 100 for tolerance
 7. **ABSOLUTELY NO literal credential strings** - use process.env.TEST_USER! and process.env.TEST_PASSWORD!
+
+## ⛔ FORBIDDEN PATTERNS - NEVER USE THESE:
+❌ NEVER use test.use({ storageState: ... }) - there is NO auth.json file!
+❌ NEVER use globalSetup for authentication
+❌ NEVER assume authentication state is pre-saved
+
+## ✅ REQUIRED PATTERN FOR AUTHENTICATION:
+You MUST use beforeEach with inline login for ALL authenticated routes:
+
+\`\`\`typescript
+test.describe('Authenticated Pages', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/login');
+    // If loginModeToggleSelector is provided, click it first:
+    // await page.click('button:has-text("Password")');
+    await page.fill('#email', process.env.TEST_USER!);
+    await page.fill('#password', process.env.TEST_PASSWORD!);
+    await page.click('button[type="submit"]');
+    await page.waitForLoadState('networkidle');
+  });
+
+  test('should access protected route', async ({ page }) => {
+    await page.goto('/protected-route');
+    // ... test code
+  });
+});
+\`\`\`
 
 ## Response Format
 Return ONLY the TypeScript code for the test file, no markdown code blocks or explanation:
@@ -319,6 +361,172 @@ export function isLoginFlowAnalysis(data: unknown): data is { loginUrl: string; 
 }
 
 /**
+ * Common patterns that indicate a login page has tabs/toggles for different login modes.
+ * These patterns are searched in the HTML content to detect when AI missed the toggle.
+ */
+const LOGIN_TAB_INDICATORS = [
+  // SvelteKit form action patterns - if passwordLogin exists, there's a tab for it
+  /action=["']?\?\/passwordLogin["']?/i,
+  /action=["']?\?\/password["']?/i,
+  // Conditional rendering around password form
+  /\{#if\s+mode\s*===?\s*['"]password['"]/i,
+  /\{#if\s+loginMode\s*===?\s*['"]password['"]/i,
+  /\{#if\s+authMode\s*===?\s*['"]password['"]/i,
+  // Button with "Password" text (tab-like)
+  /<button[^>]*>\s*Password\s*<\/button>/i,
+  /<button[^>]*>.*?Password.*?<\/button>/is,
+  // Tabs with role attributes
+  /role=["']tab["'][^>]*>.*?[Pp]assword/i,
+  /role=["']tablist["']/i,
+  // Multiple login methods visible
+  /[Vv]erification\s*[Cc]ode.*[Pp]assword|[Pp]assword.*[Vv]erification\s*[Cc]ode/s,
+  // Common tab text patterns
+  />Sign in with password</i,
+  />Use password</i,
+  />Password login</i,
+];
+
+/**
+ * Sanitize a value for use in CSS selectors to prevent injection.
+ * Removes quotes and backslashes that could break selector syntax.
+ */
+function sanitizeSelectorValue(value: string): string {
+  return value.replace(/['"\\]/g, '');
+}
+
+/**
+ * Detect if login page HTML contains indicators of tab-based login modes.
+ * This is a fallback check when AI might have missed the toggle.
+ *
+ * @param htmlContent - The login page HTML/Svelte content
+ * @returns Object with detection result and suggested selector
+ */
+export function detectLoginTabsFromHTML(htmlContent: string): {
+  hasLoginTabs: boolean;
+  suggestedSelector: string | null;
+  detectedPattern: string | null;
+} {
+  // Check each indicator pattern
+  for (const pattern of LOGIN_TAB_INDICATORS) {
+    const match = htmlContent.match(pattern);
+    if (match) {
+      logger.debug(`Detected login tab indicator: ${match[0].slice(0, 50)}...`);
+
+      // Try to find the best selector from the HTML
+      let suggestedSelector: string | null = null;
+
+      // Look for data-testid on password tab
+      const testIdMatch = htmlContent.match(/data-testid=["']([^"']*password[^"']*tab[^"']*)["']/i) ||
+                          htmlContent.match(/data-testid=["']([^"']*tab[^"']*password[^"']*)["']/i);
+      if (testIdMatch) {
+        const sanitizedTestId = sanitizeSelectorValue(testIdMatch[1]);
+        suggestedSelector = `[data-testid='${sanitizedTestId}']`;
+      }
+
+      // Look for button with Password text
+      if (!suggestedSelector) {
+        const buttonMatch = htmlContent.match(/<button[^>]*type=["']button["'][^>]*>[^<]*Password[^<]*<\/button>/i);
+        if (buttonMatch) {
+          // Check if button has id
+          const idMatch = buttonMatch[0].match(/id=["']([^"']+)["']/);
+          if (idMatch) {
+            const sanitizedId = sanitizeSelectorValue(idMatch[1]);
+            suggestedSelector = `#${sanitizedId}`;
+          } else {
+            suggestedSelector = "button:has-text('Password')";
+          }
+        }
+      }
+
+      // Default to text-based selector
+      if (!suggestedSelector) {
+        suggestedSelector = "button:has-text('Password')";
+      }
+
+      return {
+        hasLoginTabs: true,
+        suggestedSelector,
+        detectedPattern: match[0].slice(0, 100),
+      };
+    }
+  }
+
+  return {
+    hasLoginTabs: false,
+    suggestedSelector: null,
+    detectedPattern: null,
+  };
+}
+
+/**
+ * Enhance login flow analysis with heuristic tab detection.
+ * If AI didn't detect a login mode toggle but the HTML indicates tabs exist,
+ * this function adds the toggle selector.
+ *
+ * @param loginFlow - The AI-generated login flow analysis
+ * @param htmlContent - The original login page HTML content
+ * @returns Enhanced login flow with toggle selector if applicable
+ */
+export function enhanceLoginFlowWithTabDetection(
+  loginFlow: LoginFlowAnalysis,
+  htmlContent: string
+): LoginFlowAnalysis {
+  // If AI already detected a toggle, trust it
+  if (loginFlow.loginModeToggleSelector) {
+    logger.debug('AI already detected login mode toggle, using AI result');
+    return loginFlow;
+  }
+
+  // Run heuristic detection on HTML
+  const detection = detectLoginTabsFromHTML(htmlContent);
+
+  if (detection.hasLoginTabs && detection.suggestedSelector) {
+    logger.warn(`AI missed login tab detection! Detected pattern: "${detection.detectedPattern}"`);
+    logger.info(`Adding heuristic toggle selector: ${detection.suggestedSelector}`);
+
+    return {
+      ...loginFlow,
+      loginModeToggleSelector: detection.suggestedSelector,
+      loginModeToggleDescription: 'Click Password tab to enable password login (detected by heuristics)',
+    };
+  }
+
+  return loginFlow;
+}
+
+/**
+ * Detect and warn about forbidden authentication patterns in generated code.
+ * The AI should never use storageState because there's no auth.json file -
+ * authentication must be done inline with beforeEach.
+ *
+ * @param code - The generated test code to check
+ * @returns Object with detection result and issues
+ */
+export function detectForbiddenAuthPatterns(code: string): { hasForbiddenPatterns: boolean; issues: string[] } {
+  const issues: string[] = [];
+
+  // Check for storageState pattern
+  if (code.includes('storageState')) {
+    const match = code.match(/test\.use\s*\(\s*\{\s*storageState\s*:/);
+    if (match) {
+      issues.push('FORBIDDEN: test.use({ storageState: ... }) - there is no auth.json file. Use beforeEach with inline login instead.');
+    }
+  }
+
+  // Check for auth.json references
+  if (code.includes('auth.json')) {
+    issues.push('FORBIDDEN: Reference to auth.json - this file does not exist. Use beforeEach with inline login instead.');
+  }
+
+  // Check for globalSetup authentication
+  if (code.includes('globalSetup') && code.includes('auth')) {
+    issues.push('FORBIDDEN: globalSetup for authentication - use beforeEach with inline login instead.');
+  }
+
+  return { hasForbiddenPatterns: issues.length > 0, issues };
+}
+
+/**
  * Extract code from AI response (handles markdown code blocks)
  */
 export function extractCodeFromResponse(response: string): string {
@@ -330,6 +538,16 @@ export function extractCodeFromResponse(response: string): string {
   } else {
     // If no code block, assume the entire response is code
     code = response.trim();
+  }
+
+  // Check for forbidden authentication patterns
+  const { hasForbiddenPatterns, issues } = detectForbiddenAuthPatterns(code);
+  if (hasForbiddenPatterns) {
+    logger.error('Generated code contains FORBIDDEN authentication patterns:');
+    for (const issue of issues) {
+      logger.error(`  - ${issue}`);
+    }
+    logger.error('The AI prompt should have prevented this. Please regenerate the test.');
   }
 
   // Validate and fix any placeholder credentials
@@ -858,6 +1076,33 @@ Credentials MUST use environment variables EXACTLY as shown:
    - Include both success and validation error scenarios
    - Use clear, descriptive test names like "should create new user with valid data"
    - Wait appropriately for async operations
+
+## ⛔ FORBIDDEN PATTERNS - NEVER USE THESE:
+❌ NEVER use test.use({ storageState: ... }) - there is NO auth.json file!
+❌ NEVER use globalSetup for authentication
+❌ NEVER assume authentication state is pre-saved
+
+## ✅ REQUIRED PATTERN FOR AUTHENTICATION:
+You MUST use beforeEach with inline login for ALL authenticated routes:
+
+\`\`\`typescript
+test.describe('Authenticated Pages', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/login');
+    // If loginModeToggleSelector is provided, click it first:
+    // await page.click('button:has-text("Password")');
+    await page.fill('#email', process.env.TEST_USER!);
+    await page.fill('#password', process.env.TEST_PASSWORD!);
+    await page.click('button[type="submit"]');
+    await page.waitForLoadState('networkidle');
+  });
+
+  test('should access protected route', async ({ page }) => {
+    await page.goto('/protected-route');
+    // ... test code
+  });
+});
+\`\`\`
    - Verify results (success messages, redirects, data visibility)
 4. For visual tests:
    - Use toHaveScreenshot() with maxDiffPixels: 100
