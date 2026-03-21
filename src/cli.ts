@@ -21,7 +21,7 @@ program
 // Analyze command
 program
   .command('analyze <pr-url>')
-  .description('Analyze a GitHub PR and generate Playwright tests (visual + logic)')
+  .description('Analyze a GitHub or Bitbucket PR and generate Playwright tests (visual + logic)')
   .option('-o, --output <dir>', 'Output directory for generated tests', DEFAULTS.outputDir)
   .option('--test-url <url>', 'Test environment URL (overrides TEST_URL env var)')
   .option('--project <path>', 'Path to project for local route discovery')
@@ -54,6 +54,7 @@ program
         openaiApiKey: envConfig.openaiApiKey,
         testUrl: options.testUrl || envConfig.testUrl,
         githubToken: envConfig.githubToken,
+        bitbucketToken: envConfig.bitbucketToken,
         testUser: envConfig.testUser,
         testPassword: envConfig.testPassword,
         outputDir: options.output,
