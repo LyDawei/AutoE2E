@@ -2,6 +2,7 @@ import { ConfigError } from '../utils/errors.js';
 
 export interface EnvConfig {
   githubToken?: string;
+  bitbucketToken?: string;
   openaiApiKey: string;
   testUrl: string;
   testUser?: string;
@@ -22,6 +23,7 @@ export function loadEnvConfig(): EnvConfig {
 
   return {
     githubToken: process.env.GITHUB_TOKEN,
+    bitbucketToken: process.env.BITBUCKET_TOKEN,
     openaiApiKey,
     testUrl,
     testUser: process.env.TEST_USER,
@@ -40,6 +42,7 @@ export function validateEnvConfig(config: Partial<EnvConfig>): EnvConfig {
 
   return {
     githubToken: config.githubToken,
+    bitbucketToken: config.bitbucketToken,
     openaiApiKey: config.openaiApiKey,
     testUrl: config.testUrl,
     testUser: config.testUser,

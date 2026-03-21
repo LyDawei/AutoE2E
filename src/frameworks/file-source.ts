@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { FileSource } from './types.js';
 import type { GitHubClient } from '../github/client.js';
+import type { BitbucketClient } from '../bitbucket/client.js';
 
 /**
  * Local filesystem implementation of FileSource
@@ -298,15 +299,209 @@ export class GitHubFileSource implements FileSource {
 }
 
 /**
- * Create a file source based on whether we have a local path or GitHub info
+ * Bitbucket API implementation of FileSource with caching
+ */
+export class BitbucketFileSource implements FileSource {
+  private fileCache = new Map<string, string>();
+  private dirCache = new Map<string, string[]>();
+  private existsCache = new Map<string, boolean>();
+  private isDirCache = new Map<string, boolean>();
+
+  constructor(
+    private client: BitbucketClient,
+    private workspace: string,
+    private repoSlug: string,
+    private ref: string
+  ) {}
+
+  private getCacheKey(filePath: string): string {
+    return `${this.workspace}/${this.repoSlug}/${this.ref}/${filePath}`;
+  }
+
+  async exists(filePath: string): Promise<boolean> {
+    const cacheKey = this.getCacheKey(filePath);
+
+    if (this.existsCache.has(cacheKey)) {
+      return this.existsCache.get(cacheKey)!;
+    }
+
+    try {
+      await this.read(filePath);
+      this.existsCache.set(cacheKey, true);
+      return true;
+    } catch {
+      // Could be a directory, try that
+      try {
+        await this.readdir(filePath);
+        this.existsCache.set(cacheKey, true);
+        return true;
+      } catch {
+        this.existsCache.set(cacheKey, false);
+        return false;
+      }
+    }
+  }
+
+  async read(filePath: string): Promise<string> {
+    const cacheKey = this.getCacheKey(filePath);
+
+    if (this.fileCache.has(cacheKey)) {
+      return this.fileCache.get(cacheKey)!;
+    }
+
+    const content = await this.client.getFileContent(this.workspace, this.repoSlug, filePath, this.ref);
+    this.fileCache.set(cacheKey, content);
+    this.existsCache.set(cacheKey, true);
+    this.isDirCache.set(cacheKey, false);
+    return content;
+  }
+
+  async readdir(dirPath: string): Promise<string[]> {
+    const cacheKey = this.getCacheKey(dirPath);
+
+    if (this.dirCache.has(cacheKey)) {
+      return this.dirCache.get(cacheKey)!;
+    }
+
+    const contents = await this.client.getDirectoryContents(
+      this.workspace,
+      this.repoSlug,
+      dirPath,
+      this.ref
+    );
+    this.dirCache.set(cacheKey, contents.map((c) => c.name));
+    this.existsCache.set(cacheKey, true);
+    this.isDirCache.set(cacheKey, true);
+
+    // Cache individual file/dir existence
+    for (const item of contents) {
+      const itemPath = dirPath ? `${dirPath}/${item.name}` : item.name;
+      const itemCacheKey = this.getCacheKey(itemPath);
+      this.existsCache.set(itemCacheKey, true);
+      this.isDirCache.set(itemCacheKey, item.type === 'dir');
+    }
+
+    return contents.map((c) => c.name);
+  }
+
+  async isDirectory(filePath: string): Promise<boolean> {
+    const cacheKey = this.getCacheKey(filePath);
+
+    if (this.isDirCache.has(cacheKey)) {
+      return this.isDirCache.get(cacheKey)!;
+    }
+
+    try {
+      await this.readdir(filePath);
+      this.isDirCache.set(cacheKey, true);
+      return true;
+    } catch {
+      this.isDirCache.set(cacheKey, false);
+      return false;
+    }
+  }
+
+  async glob(pattern: string, basePath?: string): Promise<string[]> {
+    const files: string[] = [];
+    const searchPath = basePath || '';
+    const maxDepth = 20;
+    const visited = new Set<string>();
+
+    const scanDir = async (dirPath: string, depth: number): Promise<void> => {
+      if (depth > maxDepth) return;
+      if (visited.has(dirPath)) return;
+      visited.add(dirPath);
+
+      try {
+        const entries = await this.readdir(dirPath);
+
+        for (const entry of entries) {
+          const entryPath = dirPath ? `${dirPath}/${entry}` : entry;
+
+          if (entry.startsWith('.') || entry === 'node_modules') continue;
+
+          const isDir = await this.isDirectory(entryPath);
+
+          if (isDir) {
+            if (this.couldMatchInDirectory(entryPath, pattern)) {
+              await scanDir(entryPath, depth + 1);
+            }
+          } else {
+            if (this.matchesGlob(entryPath, pattern)) {
+              files.push(entryPath);
+            }
+          }
+        }
+      } catch {
+        // Directory doesn't exist or can't be read
+      }
+    };
+
+    await scanDir(searchPath, 0);
+    return files;
+  }
+
+  private couldMatchInDirectory(dirPath: string, pattern: string): boolean {
+    if (pattern.startsWith(dirPath)) return true;
+    if (pattern.includes('**')) return true;
+
+    const patternParts = pattern.split('/');
+    const dirParts = dirPath.split('/');
+
+    for (let i = 0; i < Math.min(patternParts.length, dirParts.length); i++) {
+      const patternPart = patternParts[i];
+      const dirPart = dirParts[i];
+
+      if (patternPart === '**') return true;
+      if (patternPart === '*') continue;
+      if (patternPart !== dirPart && !patternPart.includes('*')) return false;
+    }
+
+    return true;
+  }
+
+  private matchesGlob(filePath: string, pattern: string): boolean {
+    const regexPattern = pattern
+      .replace(/\./g, '\\.')
+      .replace(/\*\*/g, '<<<GLOBSTAR>>>')
+      .replace(/\*/g, '[^/]*')
+      .replace(/<<<GLOBSTAR>>>/g, '.*');
+
+    const regex = new RegExp(`^${regexPattern}$`);
+    return regex.test(filePath);
+  }
+
+  clearCache(): void {
+    this.fileCache.clear();
+    this.dirCache.clear();
+    this.existsCache.clear();
+    this.isDirCache.clear();
+  }
+
+  getCacheStats(): { files: number; dirs: number; exists: number; isDir: number } {
+    return {
+      files: this.fileCache.size,
+      dirs: this.dirCache.size,
+      exists: this.existsCache.size,
+      isDir: this.isDirCache.size,
+    };
+  }
+}
+
+/**
+ * Create a file source based on whether we have a local path or remote info
  */
 export function createFileSource(
   options:
     | { type: 'local'; rootPath: string }
     | { type: 'github'; client: GitHubClient; owner: string; repo: string; ref: string }
+    | { type: 'bitbucket'; client: BitbucketClient; workspace: string; repoSlug: string; ref: string }
 ): FileSource {
   if (options.type === 'local') {
     return new LocalFileSource(options.rootPath);
+  }
+  if (options.type === 'bitbucket') {
+    return new BitbucketFileSource(options.client, options.workspace, options.repoSlug, options.ref);
   }
   return new GitHubFileSource(options.client, options.owner, options.repo, options.ref);
 }

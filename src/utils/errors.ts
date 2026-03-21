@@ -39,6 +39,16 @@ export class BaselineError extends AutoE2EError {
   }
 }
 
+export class BitbucketError extends AutoE2EError {
+  constructor(
+    message: string,
+    public statusCode?: number
+  ) {
+    super(message, 'BITBUCKET_ERROR');
+    this.name = 'BitbucketError';
+  }
+}
+
 export class ConfigError extends AutoE2EError {
   constructor(message: string) {
     super(message, 'CONFIG_ERROR');

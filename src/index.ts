@@ -26,13 +26,16 @@ import {
   detectFramework,
   getAdapter,
   LocalFileSource,
-  GitHubFileSource,
   isFrameworkSupported,
   getSupportedFrameworks,
 } from './frameworks/index.js';
 import type { FrameworkType, FrameworkAdapter, AdapterContext, FileSource } from './frameworks/types.js';
 import { detectMonorepo, findWorkspace } from './monorepo/index.js';
 import type { MonorepoConfig, WorkspaceInfo } from './monorepo/types.js';
+
+// VCS provider abstraction
+import { createVCSProvider } from './vcs/index.js';
+import type { VCSProvider, VCSPRIdentifier } from './vcs/types.js';
 
 export interface AutoE2EConfig {
   /** OpenAI API key */
@@ -41,6 +44,8 @@ export interface AutoE2EConfig {
   testUrl: string;
   /** GitHub token (optional, for private repos but recommended for rate limits) */
   githubToken?: string;
+  /** Bitbucket token (optional, for private repos) */
+  bitbucketToken?: string;
   /** Test user for authenticated routes */
   testUser?: string;
   /** Test password for authenticated routes */
@@ -147,22 +152,45 @@ export class AutoE2E {
   }
 
   /**
-   * Analyze a GitHub PR and generate visual regression tests
+   * Resolve the VCS provider for a given PR URL.
+   * Auto-detects GitHub vs Bitbucket from the URL.
+   */
+  private resolveVCSProvider(prUrl: string): { provider: VCSProvider; prId: VCSPRIdentifier } {
+    const { provider, platform } = createVCSProvider(prUrl, {
+      github: this.config.githubToken,
+      bitbucket: this.config.bitbucketToken,
+    });
+
+    if (platform === 'bitbucket' && !this.config.bitbucketToken) {
+      logger.warn(
+        'No BITBUCKET_TOKEN provided. Bitbucket API requires authentication for most operations. ' +
+        'Set BITBUCKET_TOKEN for access.'
+      );
+    }
+
+    const prId = provider.parsePRUrl(prUrl);
+    return { provider, prId };
+  }
+
+  /**
+   * Analyze a PR and generate visual regression tests.
+   * Supports both GitHub and Bitbucket PR URLs.
    */
   async analyze(prUrl: string, options?: AnalyzeOptions): Promise<AnalyzeResult> {
     const dryRun = options?.dryRun ?? false;
     const skipAI = options?.skipAI ?? false;
 
-    // Parse PR URL
+    // Parse PR URL and resolve VCS provider
     logger.step(1, 7, 'Parsing PR URL...');
-    const prId = this.github.parsePRUrl(prUrl);
+    const { provider, prId } = this.resolveVCSProvider(prUrl);
+    logger.info(`Detected platform: ${prId.platform}`);
 
     // Fetch PR data
-    logger.step(2, 7, 'Fetching PR data from GitHub...');
+    logger.step(2, 7, `Fetching PR data from ${prId.platform === 'bitbucket' ? 'Bitbucket' : 'GitHub'}...`);
     const [pr, changedFiles, diff] = await Promise.all([
-      this.github.getPullRequest(prId),
-      this.github.getChangedFiles(prId),
-      this.github.getDiff(prId),
+      provider.getPullRequest(prId),
+      provider.getChangedFiles(prId),
+      provider.getDiff(prId),
     ]);
 
     logger.info(`PR #${pr.number}: ${pr.title}`);
@@ -177,7 +205,7 @@ export class AutoE2E {
     }
 
     // Create file source (local or remote)
-    const fileSource = this.createFileSource(prId, pr.headBranch);
+    const fileSource = this.createFileSourceForPR(provider, prId, pr.headBranch);
     const projectRoot = this.config.appPath || '';
     const ctx: AdapterContext = {
       fileSource,
@@ -403,23 +431,24 @@ export class AutoE2E {
   }
 
   /**
-   * Analyze a GitHub PR and generate unified tests (visual + logic)
-   * This is the new unified analysis that detects both visual and logic changes
+   * Analyze a PR and generate unified tests (visual + logic).
+   * Supports both GitHub and Bitbucket PR URLs.
    */
   async analyzeUnified(prUrl: string, options?: AnalyzeOptions): Promise<UnifiedAnalyzeResult> {
     const dryRun = options?.dryRun ?? false;
     const skipAI = options?.skipAI ?? false;
 
-    // Parse PR URL
+    // Parse PR URL and resolve VCS provider
     logger.step(1, 7, 'Parsing PR URL...');
-    const prId = this.github.parsePRUrl(prUrl);
+    const { provider, prId } = this.resolveVCSProvider(prUrl);
+    logger.info(`Detected platform: ${prId.platform}`);
 
     // Fetch PR data
-    logger.step(2, 7, 'Fetching PR data from GitHub...');
+    logger.step(2, 7, `Fetching PR data from ${prId.platform === 'bitbucket' ? 'Bitbucket' : 'GitHub'}...`);
     const [pr, changedFiles, diff] = await Promise.all([
-      this.github.getPullRequest(prId),
-      this.github.getChangedFiles(prId),
-      this.github.getDiff(prId),
+      provider.getPullRequest(prId),
+      provider.getChangedFiles(prId),
+      provider.getDiff(prId),
     ]);
 
     logger.info(`PR #${pr.number}: ${pr.title}`);
@@ -559,10 +588,11 @@ export class AutoE2E {
   }
 
   /**
-   * Create file source based on config
+   * Create file source based on config, supporting GitHub and Bitbucket
    */
-  private createFileSource(
-    prId: { owner: string; repo: string },
+  private createFileSourceForPR(
+    provider: VCSProvider,
+    prId: VCSPRIdentifier,
     ref: string
   ): FileSource {
     if (this.config.projectPath && fs.existsSync(this.config.projectPath)) {
@@ -571,7 +601,7 @@ export class AutoE2E {
         : this.config.projectPath;
       return new LocalFileSource(localPath);
     }
-    return new GitHubFileSource(this.github, prId.owner, prId.repo, ref);
+    return provider.createFileSource(prId, ref);
   }
 
   /**
@@ -983,6 +1013,7 @@ export type { MonorepoConfig, MonorepoType, WorkspaceInfo } from './monorepo/typ
 // Re-export utilities
 export { logger, setLogLevel } from './utils/logger.js';
 export { GitHubClient, createGitHubClient } from './github/client.js';
+export { BitbucketClient, createBitbucketClient } from './bitbucket/client.js';
 export { OpenAIClient, createOpenAIClient } from './ai/openai-client.js';
 export { TestGenerator, createTestGenerator } from './generator/test-generator.js';
 export { BaselineManager, createBaselineManager } from './visual/baseline-manager.js';
@@ -997,3 +1028,10 @@ export {
   isFrameworkSupported,
 } from './frameworks/index.js';
 export { detectMonorepo } from './monorepo/index.js';
+
+// Re-export VCS provider types and utilities
+export type { VCSProvider, VCSPRIdentifier, VCSPullRequest } from './vcs/types.js';
+export { GitHubProvider, BitbucketProvider, detectPlatform, createVCSProvider } from './vcs/index.js';
+
+// Re-export Bitbucket types
+export type { BitbucketPRIdentifier, BitbucketPullRequest, BitbucketChangedFile } from './bitbucket/types.js';

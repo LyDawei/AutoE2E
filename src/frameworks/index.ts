@@ -23,7 +23,7 @@ export {
 } from './detector.js';
 
 // File Sources
-export { LocalFileSource, GitHubFileSource, createFileSource } from './file-source.js';
+export { LocalFileSource, GitHubFileSource, BitbucketFileSource, createFileSource } from './file-source.js';
 
 // Base Adapter
 export { BaseAdapter } from './base-adapter.js';

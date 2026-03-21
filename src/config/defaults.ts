@@ -13,6 +13,7 @@ export const DEFAULTS = {
 } as const;
 
 export const GITHUB_API_BASE = 'https://api.github.com';
+export const BITBUCKET_API_BASE = 'https://api.bitbucket.org/2.0';
 
 export const SUPPORTED_FRAMEWORKS = [
   'sveltekit',
