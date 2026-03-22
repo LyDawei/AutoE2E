@@ -35,8 +35,6 @@ export class AngularAdapter extends BaseAdapter {
   private readonly routeFilePatterns = [
     /\.routes\.ts$/,
     /-routing\.module\.ts$/,
-    /app\.routes\.ts$/,
-    /app-routing\.module\.ts$/,
   ];
 
   /**
@@ -50,18 +48,17 @@ export class AngularAdapter extends BaseAdapter {
       version: undefined as string | undefined,
     };
 
-    // Check for angular.json or .angular.json
-    checks.hasAngularJson =
-      (await ctx.fileSource.exists(this.joinPaths(ctx.projectRoot, 'angular.json'))) ||
-      (await ctx.fileSource.exists(this.joinPaths(ctx.projectRoot, '.angular.json')));
+    // Run independent checks in parallel
+    const [hasAngularJson, hasDotAngularJson, hasSrcApp, hasAngularDep] = await Promise.all([
+      ctx.fileSource.exists(this.joinPaths(ctx.projectRoot, 'angular.json')),
+      ctx.fileSource.exists(this.joinPaths(ctx.projectRoot, '.angular.json')),
+      ctx.fileSource.isDirectory(this.joinPaths(ctx.projectRoot, 'src/app')),
+      this.hasDependency(ctx, '@angular/core'),
+    ]);
 
-    // Check for src/app/ directory
-    checks.hasSrcApp = await ctx.fileSource.isDirectory(
-      this.joinPaths(ctx.projectRoot, 'src/app')
-    );
-
-    // Check package.json for @angular/core
-    checks.hasAngularDep = await this.hasDependency(ctx, '@angular/core');
+    checks.hasAngularJson = hasAngularJson || hasDotAngularJson;
+    checks.hasSrcApp = hasSrcApp;
+    checks.hasAngularDep = hasAngularDep;
     if (checks.hasAngularDep) {
       checks.version = await this.getDependencyVersion(ctx, '@angular/core');
     }
@@ -121,11 +118,11 @@ export class AngularAdapter extends BaseAdapter {
     // Find all route definition files
     const routeFiles = await this.findRouteFiles(ctx, appDir);
 
-    // Parse routes from each file
-    for (const routeFile of routeFiles) {
-      const fileRoutes = await this.parseRoutesFromFile(ctx, routeFile, appDir);
-      routes.push(...fileRoutes);
-    }
+    // Parse routes from all files in parallel
+    const fileRoutesArray = await Promise.all(
+      routeFiles.map((routeFile) => this.parseRoutesFromFile(ctx, routeFile))
+    );
+    routes.push(...fileRoutesArray.flat());
 
     // Also scan for component directories that follow Angular conventions
     // (feature modules with their own components)
@@ -192,8 +189,7 @@ export class AngularAdapter extends BaseAdapter {
    */
   private async parseRoutesFromFile(
     ctx: AdapterContext,
-    filePath: string,
-    _appDir: string
+    filePath: string
   ): Promise<Route[]> {
     const routes: Route[] = [];
 
@@ -204,74 +200,51 @@ export class AngularAdapter extends BaseAdapter {
       return routes;
     }
 
-    // Extract route definitions using regex
-    // Match patterns like: { path: 'something', component: SomeComponent }
+    // Compute file-level properties once
+    const hasLayout = this.hasRouterOutlet(content);
+    const hasFormHandler = this.hasFormHandlerInContent(content);
+    const fileDir = this.getDirectoryFromPath(filePath);
+    const relativeDir = this.getRelativePath(
+      this.joinPaths(ctx.projectRoot),
+      fileDir
+    );
+    const fileName = filePath.split('/').pop() || '';
+    const group = this.extractFeatureModule(relativeDir);
+
     const routePattern = /\{\s*path:\s*['"`]([^'"`]*)['"`]/g;
     let match;
 
     while ((match = routePattern.exec(content)) !== null) {
       const routePath = match[1];
 
-      // Skip empty redirect routes and wildcard routes
       if (routePath === '**') continue;
 
       const urlPath = routePath === '' ? '/' : '/' + routePath;
-      const fileDir = this.getDirectoryFromPath(filePath);
-      const relativeDir = this.getRelativePath(
-        this.joinPaths(ctx.projectRoot),
-        fileDir
-      );
-
-      const isDynamic = urlPath.includes(':');
-      const isAuthProtected = this.isAuthProtectedPath(urlPath);
-
-      // Check for lazy-loaded children
-      const hasChildren = this.hasChildrenForRoute(content, routePath);
 
       routes.push({
         path: urlPath,
         directory: relativeDir,
-        hasLayout: this.hasRouterOutlet(content),
-        isAuthProtected,
-        pageFiles: [filePath.split('/').pop() || ''],
-        isDynamic,
-        group: this.extractFeatureModule(relativeDir),
+        hasLayout,
+        isAuthProtected: this.isAuthProtectedPath(urlPath),
+        pageFiles: [fileName],
+        isDynamic: urlPath.includes(':'),
+        group,
         serverFiles: [],
         actions: [],
         apiMethods: [],
-        hasFormHandler: this.hasFormHandler(content, routePath),
+        hasFormHandler,
         hasApiEndpoint: false,
-        ...(hasChildren ? {} : {}),
       });
     }
 
     return routes;
   }
 
-  /**
-   * Check if the route has children/lazy-loaded children
-   */
-  private hasChildrenForRoute(content: string, routePath: string): boolean {
-    // Look for children or loadChildren near the route path
-    const escapedPath = routePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const childrenPattern = new RegExp(
-      `path:\\s*['"\`]${escapedPath}['"\`][^}]*(?:children|loadChildren|loadComponent)`,
-      's'
-    );
-    return childrenPattern.test(content);
-  }
-
-  /**
-   * Check if content has router-outlet (indicates layout)
-   */
   private hasRouterOutlet(content: string): boolean {
     return content.includes('router-outlet') || content.includes('RouterOutlet');
   }
 
-  /**
-   * Check if a route has form handling
-   */
-  private hasFormHandler(content: string, _routePath: string): boolean {
+  private hasFormHandlerInContent(content: string): boolean {
     return (
       content.includes('FormGroup') ||
       content.includes('FormBuilder') ||
