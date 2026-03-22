@@ -10,7 +10,8 @@ export type FrameworkType =
   | 'nextjs' // Hybrid: both app and pages router
   | 'nuxt'
   | 'remix'
-  | 'react-router';
+  | 'react-router'
+  | 'angular';
 
 /**
  * Detection confidence levels

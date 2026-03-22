@@ -20,6 +20,7 @@ const DETECTION_ORDER: FrameworkType[] = [
   'nextjs-pages',
   'nextjs',
   'nuxt',
+  'angular',
 ];
 
 /**

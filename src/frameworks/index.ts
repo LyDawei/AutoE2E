@@ -34,6 +34,7 @@ export { NextJsAdapter, createNextJsAdapter } from './nextjs/index.js';
 export { NuxtAdapter, createNuxtAdapter } from './nuxt/index.js';
 export { RemixAdapter, createRemixAdapter } from './remix/index.js';
 export { ReactRouterAdapter, createReactRouterAdapter } from './react-router/index.js';
+export { AngularAdapter, createAngularAdapter } from './angular/index.js';
 
 // Register all built-in adapters
 import { frameworkRegistry } from './registry.js';
@@ -42,6 +43,7 @@ import { createNextJsAdapter } from './nextjs/index.js';
 import { createNuxtAdapter } from './nuxt/index.js';
 import { createRemixAdapter } from './remix/index.js';
 import { createReactRouterAdapter } from './react-router/index.js';
+import { createAngularAdapter } from './angular/index.js';
 
 // Auto-register adapters on import
 frameworkRegistry.register('sveltekit', createSvelteKitAdapter);
@@ -51,3 +53,4 @@ frameworkRegistry.register('nextjs-pages', () => createNextJsAdapter('pages'));
 frameworkRegistry.register('nuxt', createNuxtAdapter);
 frameworkRegistry.register('remix', createRemixAdapter);
 frameworkRegistry.register('react-router', createReactRouterAdapter);
+frameworkRegistry.register('angular', createAngularAdapter);

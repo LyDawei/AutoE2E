@@ -23,5 +23,6 @@ export const SUPPORTED_FRAMEWORKS = [
   'nuxt',
   'remix',
   'react-router',
+  'angular',
 ] as const;
 export type SupportedFramework = (typeof SUPPORTED_FRAMEWORKS)[number];
